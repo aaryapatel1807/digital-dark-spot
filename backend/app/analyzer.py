@@ -460,9 +460,16 @@ def _rebuild_findings(response: AnalysisResponse) -> AnalysisResponse:
     covered = sum(c.status == "covered" for c in response.coverage)
     partial = sum(c.status == "partial" for c in response.coverage)
     readable = sum(s.fetch_status == "ok" and s.text_length > 0 for s in response.sources)
-    summary = (f"Across {readable} readable source(s), {covered} of {len(response.coverage)} question(s) have strong keyword coverage, "
-               f"{partial} have partial coverage and {len(response.unanswered_questions)} have no matching evidence. "
-               f"{len(response.conflicts)} possible conflict(s) need verification. Coverage measures text overlap, not factual correctness.")
+    if readable == 0:
+        # Regression guard (pre-2.0 behaviour): a generic "0 readable"
+        # summary hides the actual failure. Say plainly that nothing
+        # could be read and the inaccessible inputs must be fixed first.
+        summary = ("No sources could be read, so no question could be answered from evidence. "
+                   "Fix the inaccessible inputs first, then re-run the analysis.")
+    else:
+        summary = (f"Across {readable} readable source(s), {covered} of {len(response.coverage)} question(s) have strong keyword coverage, "
+                   f"{partial} have partial coverage and {len(response.unanswered_questions)} have no matching evidence. "
+                   f"{len(response.conflicts)} possible conflict(s) need verification. Coverage measures text overlap, not factual correctness.")
     return response.model_copy(update={"gaps": gaps, "actions": actions, "summary": summary})
 
 
@@ -479,6 +486,20 @@ def analyze(
     questions, method, notes = derive_questions(goal, user_questions)
     records: list[SourceRecord] = [c.record for c in collected]
     texts: dict[str, str] = {c.record.id: c.text for c in collected if c.text}
+    # Identical sources are not independent corroboration. Flag exact
+    # duplicates (whitespace/case-normalized) in notes, which the
+    # frontend Overview renders; do not invent a new gap kind or
+    # drop a source, and do not guess at near-duplicates.
+    _by_text: dict[str, list[str]] = {}
+    for _item in collected:
+        if _item.record.fetch_status == "ok" and _item.text:
+            _by_text.setdefault(_normalize_for_match(_item.text).lower(), []).append(_item.record.id)
+    for _ids in _by_text.values():
+        if len(_ids) >= 2:
+            notes.append(
+                f"{' and '.join(_ids)} contain identical text; "
+                "treat them as one source, not independent corroboration."
+            )
     accessible = [c for c in collected if c.record.fetch_status == "ok" and c.text]
     inaccessible_ids = [c.record.id for c in collected if c.record.fetch_status != "ok"]
 

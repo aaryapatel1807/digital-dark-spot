@@ -35,6 +35,29 @@ def test_validation_removes_support_without_a_valid_quote():
     assert any(g.kind == "single_source" for g in cleaned.gaps)
 
 
+def test_all_inaccessible_summary_says_nothing_could_be_read():
+    result = _run(["What is the secret?"], [
+        _src("S1", "", status="blocked"),
+        _src("S2", "", status="failed"),
+    ])
+    assert result.coverage_percent == 0
+    assert "No sources could be read" in result.summary
+    assert "Fix the inaccessible inputs first" in result.summary
+
+
+def test_identical_sources_are_flagged_not_corroboration():
+    text = "Students are eligible when family income is below the limit."
+    result = _run(["Who is eligible?"], [_src("S1", text), _src("S2", text)])
+    assert any("S1 and S2 contain identical text" in n for n in result.notes)
+    assert any("not independent corroboration" in n for n in result.notes)
+    # Distinct text must not be flagged.
+    result2 = _run(["Who is eligible?"], [
+        _src("S1", text),
+        _src("S2", "Students are eligible when family income is below another limit."),
+    ])
+    assert not any("identical text" in n for n in result2.notes)
+
+
 def test_mixed_old_and_undated_sources_are_described_accurately():
     from datetime import date, timedelta
     result = _run(["Who is eligible?"], [
