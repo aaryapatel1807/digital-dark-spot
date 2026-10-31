@@ -7,13 +7,17 @@ and what to verify next — with evidence shown, and AI findings labelled as *po
 A generic chatbot summary does not satisfy this problem statement, and neither does a fake one: this repo therefore
 has **no fake search and no fake citations**.
 
-> **Analysis build (v0.2.0-analysis).** The foundation's sample and one-URL fetch remain, and the analysis
-> engine has now landed: `POST /api/analyze` takes a research goal, public URLs, and pasted text, and returns
+> **Live (1 Nov 2026).** Frontend: https://gaplens-omega.vercel.app (Vercel).
+> Backend: https://gaplens-backend-77c25.containers.snapdeploy.app (SnapDeploy, free tier —
+> sleeps after 15 minutes idle, wake it via `/api/health` before demoing; it takes 60–90
+> seconds to wake). Backend version 2.0.0, environment production, verified live:
+> frontend header "Backend connected", live (non-demo) reports run end to end.
+>
+> **Analysis build (v2.0.0).** `POST /api/analyze` takes a research goal, public URLs, and pasted text, and returns
 > a strict Pydantic result — summary, per-question coverage, unanswered questions, possible conflicts with
-> both quotes, freshness warnings, and a prioritized verify-next action list. Every quote is validated
-> server-side against the collected text before the response leaves. The frontend is untouched by this
-> layer: it keeps calling health, sample, and fetch exactly as before, and can adopt `/api/analyze` later
-> without any backend change.
+> both quotes, freshness warnings, trust-tier alert, and a prioritized verify-next action list. Every quote is validated
+> server-side against the collected text before the response leaves. See
+> [`docs/submission.md`](docs/submission.md) for the submission pack and demo script.
 
 ## What this build does
 
@@ -32,7 +36,8 @@ has **no fake search and no fake citations**.
   rendered that the backend did not return. The old foundation page (health card, sample view, fetch
   preview) was replaced by the dashboard; the backend endpoints it used are unchanged.
 - **Analysis:** `POST /api/analyze` — goal + URLs + pasted text in, strict result out (summary, coverage,
-  unanswered questions, possible conflicts with both quotes, freshness warnings, prioritized actions).
+  unanswered questions, possible conflicts with both quotes, freshness warnings, trust-tier alert,
+  prioritized actions).
   `mode: "offline_sample"` returns the bundled demo through the same engine, clearly labelled.
 
 ## Analysis: `POST /api/analyze`
@@ -65,12 +70,16 @@ Response (`AnalysisResponse`):
   explicit `fetch_status` and error. `fetch_status` distinguishes **`not_found`** (HTTP 404/410: the host
   exists, the page does not) from **`nonexistent`** (DNS failure: the host does not resolve), plus `blocked`
   (safety refusal or 401/403/429), `timeout`, `too_large`, `unsupported`, `failed`.
-- `coverage` — per question: `covered` / `partial` / `not_found`, supporting source IDs, and up to 5
-  evidence quotes. Coverage is deterministic token-overlap scoring (thresholds 0.50 / 0.25, partial needs
+- `coverage` — per question: `covered` / `partial` / `not_found`, supporting source IDs, and
+  evidence quotes for every supporting source. Coverage is deterministic token-overlap scoring (thresholds 0.50 / 0.25, partial needs
   ≥ 2 matched terms, tight synonym pairs) — precision over recall, so a single shared topic word never
   counts as partial coverage.
-- `conflicts` — `possible conflict` only, never adjudicated: numeric (different money/percent/year/date
-  values for the same question across sources) or stance (one passage denies a term another affirms),
+- `trust` — source tiers from URL host only (government = official, academic = university, small
+  known-news list = news, everything else including pasted text = unknown). If no readable source
+  is official, the summary says so and a high-priority verify-next action asks for an official source.
+- `conflicts` — `possible conflict` only, never adjudicated: numeric (different money/percent/year/date/
+  bare-number values for the same question across sources — bare numbers cover scores and counts such
+  as CGPA 7.0 vs 7.5) or stance (one passage denies a term another affirms),
   always with both quotes.
 - `freshness_warnings` — sources older than 365 days (`stale`, with age in days) and sources with no
   publication date (`undated`, `published_date: null`). Undated is never guessed.
@@ -117,7 +126,7 @@ Backend checks: `cd backend && .venv/bin/python -m pytest tests/ -q`
 | `GROQ_API_KEY` | backend only | *(unset)* | Free Groq key. Unset = sample mode. Never in frontend code, never in a response. |
 | `GROQ_MODEL` | backend only | *(unset)* | Model name, used only to propose questions when no questions are supplied; defaults to `llama-3.1-8b-instant`. |
 | `CORS_ORIGINS` | backend only | `http://localhost:5173,http://localhost:4173` | Comma-separated exact origins (scheme + host, no path, no trailing slash). Change it when the frontend origin changes; do not use `*` in production. |
-| `ENVIRONMENT` | backend only | `development` | Reported by `/api/health`. Set to `production` on Render. |
+| `ENVIRONMENT` | backend only | `development` | Reported by `/api/health`. Set to `production` on SnapDeploy. |
 | `VITE_API_URL` | frontend only | `http://localhost:8000` | Backend base URL (origin only, no `/api` suffix, no trailing slash). The only frontend env var. Dev reads `frontend/.env.development`; production builds read the hosting dashboard's env var (see Deployment below) — Vite bakes it in at build time. |
 
 ## API
@@ -168,10 +177,11 @@ gaplens (repo: digital-dark-spot)
 
 ## Not in this build (next layers)
 
-Real database persistence (the earlier Next.js prototype used Supabase; this rewrite has no DB yet),
-re-check + diff, trust tiers, templates beyond the one demo, and PDF/text export. None of these is claimed
-anywhere in the UI. The analysis engine itself is done: coverage, conflict, freshness, gaps, and actions
-are live in `POST /api/analyze`.
+Real database persistence (the earlier Next.js prototype used Supabase; this rewrite has no DB yet —
+reports live in the browser in this build), re-check + diff, full trust-tier UI (tiers can be
+overridden in the UI), templates beyond the one demo, and PDF/text export. None of these is claimed
+anywhere in the UI. The analysis engine itself is done: coverage, conflict, freshness, gaps, trust
+alert, and actions are live in `POST /api/analyze`.
 
 ## Limitations to know
 
@@ -193,125 +203,79 @@ The 11 DigiDoor starter templates (10 repos + the gstack process layer) are appl
 [`docs/digidoor-starter-checklist.md`](docs/digidoor-starter-checklist.md) — each one listed as applied, limited,
 or deliberately skipped, with the reason. Nothing is silently dropped.
 
-## Deployment (free hosting)
+## Deployment (free hosting, ₹0)
 
-**Status: prepared, NOT deployed.** Nothing below has been created in any account yet — no Vercel
-project, no Render service, no live URL exists from this work. The steps in "What you must do"
-are the only path from this commit to a live demo, and they need your clicks because both
-hosts sign in with your GitHub account. Do not claim a live deployment until the verification
-checklist at the end of this section passes against real URLs.
+**Status: LIVE (verified 1 Nov 2026).**
 
-### Chosen stack (₹0, no architecture change)
+| Part | Host | Live URL |
+|---|---|---|
+| Frontend (static Vite build) | Vercel, Hobby plan | https://gaplens-omega.vercel.app |
+| Backend (FastAPI, `uvicorn app.main:app --host 0.0.0.0 --port 8000`, root directory `backend/`) | SnapDeploy, Free Small (512 MB / 0.25 vCPU) | https://gaplens-backend-77c25.containers.snapdeploy.app |
 
-| Part | Host | Why it fits | File that configures it |
-|---|---|---|---|
-| Frontend (static Vite build) | Vercel, Hobby plan | Static React build, global CDN, auto-deploy from Git; the repo already deploys other projects to Vercel | None needed — Vercel auto-detects Vite once Root Directory is `frontend/` |
-| Backend (persistent FastAPI) | Render, Free web service | Runs the existing `uvicorn` process unchanged — no serverless rewrite, no function timeout cutting a multi-source analysis short | [`render.yaml`](render.yaml) (Blueprint) |
+Both hosts auto-deploy from GitHub `main` (frontend redeploy on commit, backend
+auto-deploy on push). The Vercel project is `gaplens`; the frontend build sets
+`VITE_API_URL` to the SnapDeploy backend origin (origin only, no `/api` suffix).
 
-No database, no file storage, and no background worker are involved, so the free tiers' usual
-traps (expiring free Postgres, persistent disks) do not apply here.
+### Free-tier facts and caveats (checked 31 Oct – 1 Nov 2026)
 
-### Free-tier facts and caveats (checked 31 Oct 2026)
-
-- **Render Free:** $0, 0.1 CPU / 512 MB, one instance, 750 free instance hours per workspace per
-  month. A free web service **spins down after 15 minutes without traffic and takes about a
-  minute to wake** on the next request — the first visitor after a quiet spell sees a loading
-  page, then the app works. Render's own docs say free instances are not for production apps;
-  for a hackathon demo this is acceptable, but **wake the backend before you demo or present**:
+- **SnapDeploy Free Small:** the container **sleeps after 15 minutes without traffic
+  and takes 60–90 seconds to wake** — the first visitor after a quiet spell sees a
+  "Waking up" page, then the app works. **Wake the backend before you demo or present:**
   open `<backend>/api/health` first and wait for `{"status":"ok"}`.
 - **Vercel Hobby:** $0 for personal, non-commercial projects, with CDN, HTTPS, and Git
-  auto-deploy. A hackathon demo entry is a personal project, so Hobby fits; a commercial
-  product would need Pro ($20/seat/month). Re-check both providers' pricing pages before
-  launch — free tiers change, and the numbers above are from 31 Oct 2026.
-- **Rate limiting** is per-process in this codebase. On Render's single free instance that
+  auto-deploy. A hackathon demo entry is a personal project, so Hobby fits.
+- **Rate limiting** is per-process in this codebase. On a single container that
   behaves as documented; it would not hold across multiple instances or serverless replicas.
 - **Preview deployments are NOT CORS-covered:** `CORS_ORIGINS` is an exact-origin list, so a
   Vercel preview URL (`*.vercel.app` with a different subdomain) will be blocked until you add
-  it. Only the production frontend origin is configured by the steps below.
+  it. Only the production frontend origin is configured: `https://gaplens-omega.vercel.app`.
 
 ### Environment variables (secure handling)
 
-- **Backend secrets live only in the Render dashboard** (Service > Environment): `GROQ_API_KEY`
-  (optional — leave unset and the API runs in honest demo mode), `CORS_ORIGINS`, `ENVIRONMENT`.
-  They are never committed, never in frontend code, and never in a response — `/api/health`
-  reports only `groq_configured: true/false`. Render's own environment takes precedence over
-  any `.env` file because `load_dotenv()` does not override existing variables.
+- **Backend secrets live only in the SnapDeploy dashboard** (Environment): `GROQ_API_KEY`
+  (optional — leave unset and the API runs in honest demo mode), `GROQ_MODEL`,
+  `CORS_ORIGINS`, `ENVIRONMENT`. They are never committed, never in frontend code, and
+  never in a response — `/api/health` reports only `groq_configured: true/false`.
 - **Frontend has exactly one env var, and it is not a secret:** `VITE_API_URL`, the backend
-  origin. It is baked into the bundle at build time by Vite, so it must be set in the Vercel
-  dashboard **before** the frontend builds, and changing it requires a frontend redeploy.
-  Format: origin only — `https://<backend>.onrender.com`, no `/api` suffix (the app appends
-  `/api/health`, `/api/analyze`, …), no trailing slash. If a production build is ever made
-  without it, the app logs a console warning saying so instead of failing silently.
+  origin. It is baked into the bundle at build time by Vite, so changing it requires a
+  frontend redeploy. If a production build is ever made without it, the app logs a console
+  warning saying so instead of failing silently.
 - **Local development is unchanged:** `npm run dev` reads `frontend/.env.development`
-  (`http://localhost:8000`), which production builds never read. `.env.production.example`
-  documents the production format only — do not commit a filled-in copy.
+  (`http://localhost:8000`), which production builds never read.
 
-### What you must do (exact steps, in this order)
+### Verified live pair (1 Nov 2026)
 
-The order matters: the frontend build needs the backend URL, and the backend CORS list needs
-the frontend URL. Backend first, frontend second, CORS last.
-
-1. **Push this commit to GitHub** (local commit only so far). Both hosts deploy from the repo.
-2. **Render — create the backend.** Sign in to Render with GitHub, then **New > Blueprint**,
-   pick the `digital-dark-spot` repo, and confirm the service Render reads from `render.yaml`:
-   name `gaplens-backend`, type Web Service, plan **Free**, root directory `backend/`,
-   build `pip install -r requirements.txt`, start
-   `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/api/health`.
-   (If the name is taken, Render will suggest another — use the URL it actually assigns.)
-   In Service > Environment, set `ENVIRONMENT=production` and, for now,
-   `CORS_ORIGINS=http://localhost:5173,http://localhost:4173`. Leave `GROQ_API_KEY` blank
-   unless you want live Groq question proposals — paste a free key from console.groq.com
-   only in the dashboard, never in the repo.
-3. **Wait for the Render deploy, then verify the backend alone:**
-   open `https://<your-backend>.onrender.com/api/health` — it must return
-   `{"status":"ok", "environment":"production", ...}`. Copy the exact backend URL.
-4. **Vercel — create the frontend.** Sign in to Vercel with GitHub, **Add New > Project >
-   Import Git Repository**, pick `digital-dark-spot`, and set: **Root Directory `frontend`**,
-   Framework Preset `Vite` (auto-detected), Build Command `npm run build`, Output Directory
-   `dist`. Under Environment Variables, add `VITE_API_URL=https://<your-backend>.onrender.com`
-   (origin only, no trailing slash). Deploy, then copy the exact frontend URL, e.g.
-   `https://gaplens-xyz.vercel.app`.
-5. **Render — point CORS at the real frontend.** In the Render service's Environment tab,
-   change `CORS_ORIGINS` to exactly that frontend URL — scheme + host only, no path, no
-   trailing slash. **Never paste a Vercel dashboard URL here** (it contains a path and is
-   not a valid Origin — a past deployment broke exactly this way). Saving restarts the
-   service; wait for it to come back up.
-6. **Verify the deployed pair (do not skip this):**
-   - `curl` the backend health with the frontend as Origin and confirm the response carries
-     `Access-Control-Allow-Origin: <your-frontend-url>` (and that an unrelated Origin gets none).
-   - Open the frontend URL: the header must say **Backend connected**, not "Backend unreachable".
-   - Run a live analysis (goal + one URL + one pasted text) and the demo mode, and confirm the
-     demo banner still says "Demo data — not a live result".
-   - Wake-test: wait 20 minutes, open the frontend again, and confirm it recovers after the
-     ~1 minute Render cold start.
-7. **Submit the frontend URL as the live demo** (plus the public repo link, which is already
-   required). Mention in the submission that the backend sleeps when idle if a judge hits it
-   cold — the health URL wakes it.
+- Backend `/api/health` returns `{"status":"ok","version":"2.0.0","environment":"production",
+  "groq_configured":true}`.
+- Frontend header says **Backend connected**, not "Backend unreachable".
+- Live analysis (goal + pasted texts) runs end to end, including the CGPA 7.0 vs 7.5
+  bare-number conflict (see `docs/submission.md` for the demo script).
+- Demo mode banner still says "Demo data — not a live result".
 
 ### Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | Frontend says "Backend unreachable" | `VITE_API_URL` missing, wrong, or has a trailing `/api` | Fix the Vercel env var (origin only) and **redeploy** — env vars are build-time |
-| Browser console: CORS error on `/api/analyze` | `CORS_ORIGINS` does not exactly match the frontend origin | Fix the Render env var to the exact production URL, wait for restart |
-| Render shows a loading page, then works | Free instance was asleep | Expected (~1 minute wake). Warm it via `/api/health` before demos |
-| Backend `/api/health` 404 or never starts | Wrong root directory or start command | Check Render logs; root must be `backend/`, start must be the `uvicorn … --port $PORT` command from `render.yaml` |
-| Groq errors in logs, questions still work | Bad or expired key | The engine falls back to template questions; fix or remove the key in the Render dashboard |
+| Browser console: CORS error on `/api/analyze` | `CORS_ORIGINS` does not exactly match the frontend origin | Fix the SnapDeploy env var to the exact production URL, wait for restart |
+| SnapDeploy shows a "Waking up" page, then works | Free container was asleep | Expected (60–90 second wake). Warm it via `/api/health` before demos |
+| Backend `/api/health` 404 or never starts | Wrong root directory or start command | Check SnapDeploy logs; root must be `backend/`, start must be the `uvicorn` command above |
+| Groq errors in logs, questions still work | Bad or expired key | The engine falls back to template questions; fix or remove the key in the SnapDeploy dashboard |
 | Vercel preview deployment cannot reach the API | Preview origins are not in `CORS_ORIGINS` | Add the preview origin temporarily, or test previews against demo mode only |
 
 ### Rollback
 
 Redeploy the previous deployment in the Vercel dashboard (Deployments > ⋯ > Redeploy) and,
-on Render, use Manual Deploy > Deploy an earlier commit. Suspending both services removes the
+on SnapDeploy, redeploy an earlier commit. Suspending both services removes the
 demo entirely; nothing in this app stores user data, so there is nothing to migrate back.
 
 ### Alternatives considered (not implemented)
 
-- **Backend on Vercel serverless:** possible (a previous project in this account runs a backend
-  on Vercel), but it would need an `api/` serverless entry, and Hobby function timeouts could
-  cut long multi-source analyses short. Render keeps the existing process untouched, so it was
-  chosen. If Render's sleep becomes a problem during judging, the paid Render instance
-  ($7/month) is the fix — not a bigger workspace plan, which does not stop a free instance
-  from sleeping.
+- **Render (abandoned, do not retry without his word):** Blueprint sync failed, and the
+  account's free instance limit was exhausted — manual creation was blocked at Deploy.
+- **Railway (abandoned):** trial expired; free plan blocked new projects.
+- **Backend on Vercel serverless:** possible, but it would need an `api/` serverless entry,
+  and Hobby function timeouts could cut long multi-source analyses short. SnapDeploy keeps
+  the existing process untouched.
 - **Cloudflare Pages for the frontend:** also free and viable, but Vercel is already the
   account's established frontend host, so no new account is needed for the demo.
