@@ -18,7 +18,12 @@ load_dotenv()  # Reads backend/.env when present; .env is gitignored.
 
 
 def _cors_origins() -> list[str]:
-    raw = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
+    # Both local frontend origins work out of the box: 5173 is the
+    # Vite dev server, 4173 is `vite preview` of the production
+    # build. Without 4173, the built app's health/analyze calls were
+    # CORS-blocked in the browser (curl probes passed, so the failure
+    # only showed up in a real browser — caught by the browser e2e).
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:4173")
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 

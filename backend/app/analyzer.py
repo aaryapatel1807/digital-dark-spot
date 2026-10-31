@@ -51,8 +51,12 @@ PARTIAL_THRESHOLD = 0.25
 # a single shared word (often just the topic word, e.g. "year" in a
 # renewal question) must not make a question look half-answered.
 PARTIAL_MIN_MATCHED = 2
-MAX_EVIDENCE_PER_QUESTION = 5
 QUOTE_MAX_CHARS = 500
+# NOTE: evidence used to be capped at 5 passages per question, but
+# supporting_source_ids was not capped — so a 6th supporting source
+# got a matrix dot whose drawer showed "supports none of the checked
+# questions". Citations must cover every supporting source, so there
+# is no evidence cap now; the bound is the input cap (20 sources).
 
 _STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -182,15 +186,34 @@ def _supports(score: float, matched: int) -> bool:
 
 
 def _best_passages(
-    question_tokens: set[str], collected: list[CollectedSource]
+    question_tokens: set[str],
+    collected: list[CollectedSource],
+    sentences_cache: dict[str, list[str]],
+    tokens_cache: dict[str, set[str]],
 ) -> list[_ScoredPassage]:
+    """Best supporting passage per source, with per-run caches.
+
+    Sentence splitting and tokenization depend only on the source
+    text, not on the question, so recomputing them for every question
+    was pure waste (questions × sources × sentences). The caches
+    live for one analyze() run only and never change a score: the
+    same sentence always tokenizes to the same set.
+    """
     scored: list[_ScoredPassage] = []
     for item in collected:
         if item.record.fetch_status != "ok" or not item.text:
             continue
+        sentences = sentences_cache.get(item.record.id)
+        if sentences is None:
+            sentences = _sentences(item.text)
+            sentences_cache[item.record.id] = sentences
         best: _ScoredPassage | None = None
-        for sentence in _sentences(item.text):
-            score, matched = _score(question_tokens, _tokens(sentence))
+        for sentence in sentences:
+            tokens = tokens_cache.get(sentence)
+            if tokens is None:
+                tokens = _tokens(sentence)
+                tokens_cache[sentence] = tokens
+            score, matched = _score(question_tokens, tokens)
             if score > 0 and (best is None or score > best.score):
                 best = _ScoredPassage(item.record.id, sentence, score, matched)
         if best is not None and _supports(best.score, best.matched):
@@ -401,9 +424,11 @@ def analyze(
     coverage: list[QuestionCoverage] = []
     conflicts: list[PossibleConflict] = []
     gaps: list[GapItem] = []
+    sentences_cache: dict[str, list[str]] = {}
+    tokens_cache: dict[str, set[str]] = {}
     for question_id, question, origin in questions:
         tokens = _tokens(question)
-        passages = _best_passages(tokens, collected)
+        passages = _best_passages(tokens, collected, sentences_cache, tokens_cache)
         best = passages[0] if passages else None
         if best is not None and best.score >= COVERED_THRESHOLD:
             status = "covered"
@@ -412,7 +437,7 @@ def analyze(
         else:
             status = "not_found"
         supporting = [p.source_id for p in passages]
-        evidence = [EvidenceQuote(source_id=p.source_id, quote=p.sentence) for p in passages[:MAX_EVIDENCE_PER_QUESTION]]
+        evidence = [EvidenceQuote(source_id=p.source_id, quote=p.sentence) for p in passages]
         coverage.append(QuestionCoverage(
             question_id=question_id, question=question, origin=origin,
             status=status, supporting_source_ids=supporting, evidence=evidence,

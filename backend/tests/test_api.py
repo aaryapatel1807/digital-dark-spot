@@ -8,9 +8,20 @@ These assert the honesty guarantees, not just 200s:
 
 from fastapi.testclient import TestClient
 
+from app.config import _cors_origins
 from app.main import app
 
 client = TestClient(app)
+
+
+def test_default_cors_covers_dev_and_preview_origins(monkeypatch) -> None:
+    """Regression: the default allowed only the Vite dev origin
+    (5173), so the production preview build (4173) was CORS-blocked
+    in a real browser while every curl probe passed."""
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    origins = _cors_origins()
+    assert "http://localhost:5173" in origins
+    assert "http://localhost:4173" in origins
 
 
 def test_health_shape_and_no_secret_leak() -> None:

@@ -120,6 +120,24 @@ def test_all_quotes_are_substrings_of_their_sources():
             assert value.quote in texts[value.source_id]
 
 
+def test_evidence_covers_every_supporting_source():
+    """Regression: evidence used to be capped at 5 while
+    supporting_source_ids was not, so a 6th supporting source got a
+    matrix dot whose drawer showed no passage. Every supporting
+    source must have a citation, however many there are."""
+    sources = [
+        _src(f"S{i}", f"The scholarship fee is Rs. 10000 per year for students in group {i}.")
+        for i in range(1, 7)
+    ]
+    result = _run(["What is the scholarship fee?"], sources)
+    row = result.coverage[0]
+    assert row.supporting_source_ids == [f"S{i}" for i in range(1, 7)]
+    assert [e.source_id for e in row.evidence] == row.supporting_source_ids
+    texts = {s.record.id: s.text for s in sources}
+    for evidence in row.evidence:
+        assert evidence.quote in texts[evidence.source_id]
+
+
 def test_validation_drops_fabricated_quote_and_demotes():
     good = _src("S1", "Students are eligible when family income is below the limit.")
     base = _run(["Who is eligible?"], [good])

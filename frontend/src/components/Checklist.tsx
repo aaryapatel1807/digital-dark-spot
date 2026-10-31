@@ -1,5 +1,5 @@
 import { Check, Copy, ListChecks, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AnalysisResponse, Priority, SourceRecord } from "../lib/types";
 
 const PRIORITY_STYLE: Record<Priority, string> = {
@@ -19,6 +19,15 @@ export function Checklist({
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const sourceById = new Map(result.sources.map((s) => [s.id, s]));
+
+  // Ticks belong to one report. Without this, running a second
+  // analysis kept the first report's ticks (same ranks, different
+  // actions) and the "x of y checked" count lied about the new run.
+  useEffect(() => {
+    setDone(new Set());
+    setCopied(false);
+    setCopyFailed(false);
+  }, [result]);
 
   const toggle = (rank: number) => {
     setDone((prev) => {

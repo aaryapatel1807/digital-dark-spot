@@ -98,6 +98,29 @@ def test_analyze_url_success_and_failure_are_both_marked(monkeypatch):
     assert any("S2" in a["source_ids"] for a in body["actions"])
 
 
+def test_parallel_fetch_keeps_input_order(monkeypatch):
+    """Two 0.4 s fetches must finish in ~0.4 s, not ~0.8 s, and
+    source IDs must still follow input order (executor.map)."""
+    import time
+
+    def _slow_fetch(url):
+        time.sleep(0.4)
+        return FetchedPage(url=url, status="ok", title="Slow page",
+                           text="Students are eligible when family income is below the limit.",
+                           content_type="text/html")
+    monkeypatch.setattr(collector_mod, "fetch_url_record", _slow_fetch)
+    started = time.time()
+    body = client.post("/api/analyze", json={
+        "goal": "Scholarship application",
+        "questions": ["Who is eligible?"],
+        "urls": ["https://example.com/first", "https://example.com/second"],
+    }).json()
+    assert time.time() - started < 0.7
+    assert [s["id"] for s in body["sources"]] == ["S1", "S2"]
+    assert body["sources"][0]["url"] == "https://example.com/first"
+    assert body["sources"][1]["url"] == "https://example.com/second"
+
+
 def test_old_endpoints_unchanged():
     health = client.get("/api/health").json()
     assert health["status"] == "ok"

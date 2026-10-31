@@ -17,6 +17,7 @@ source built by the sample layer, which sets its date explicitly.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from pydantic import HttpUrl
@@ -25,6 +26,11 @@ from .analysis_schemas import PastedText, SourceRecord
 from .fetcher import FetchedPage, fetch_url_record
 
 _EXCERPT_CHARS = 1000
+# Fetching was sequential: 20 slow URLs at the 10 s timeout meant a
+# ~200 s analyze request. Five concurrent fetches cut the common
+# case sharply without hammering any one site; order is preserved
+# by executor.map, so source IDs never change.
+_MAX_FETCH_WORKERS = 5
 
 
 @dataclass
@@ -37,16 +43,31 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _safe_fetch(url: str) -> FetchedPage:
+    """fetch_url_record already maps transport errors to results, but
+    a bug in it must never take down a whole analyze run: fall back
+    to a failed page for that one source instead."""
+    try:
+        return fetch_url_record(url)
+    except Exception as exc:  # Defensive: keep the run alive.
+        return FetchedPage(url=url, status="failed", error=f"Unexpected fetch error: {type(exc).__name__}.")
+
+
 def collect_sources(
     urls: list[HttpUrl], texts: list[PastedText]
 ) -> list[CollectedSource]:
     """Fetch every URL and wrap every pasted text into collected sources."""
     collected: list[CollectedSource] = []
     index = 1
-    for raw_url in urls:
+    url_strings = [str(raw_url) for raw_url in urls]
+    if url_strings:
+        with ThreadPoolExecutor(max_workers=min(_MAX_FETCH_WORKERS, len(url_strings))) as pool:
+            pages = list(pool.map(_safe_fetch, url_strings))
+    else:
+        pages = []
+    for raw_url, page in zip(urls, pages):
         source_id = f"S{index}"
         index += 1
-        page: FetchedPage = fetch_url_record(str(raw_url))
         collected.append(
             CollectedSource(
                 record=SourceRecord(

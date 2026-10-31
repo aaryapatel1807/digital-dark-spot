@@ -15,7 +15,10 @@ export function Overview({ result }: { result: AnalysisResponse }) {
   const covered = result.coverage.filter((c) => c.status === "covered").length;
   const partial = result.coverage.filter((c) => c.status === "partial").length;
   const unanswered = result.coverage.filter((c) => c.status === "not_found").length;
-  const accessible = result.sources.filter((s) => s.fetch_status === "ok").length;
+  // Match the backend summary's definition of readable: fetched AND
+  // with text. A page that fetched but yielded no text is not a
+  // source the engine could actually read from.
+  const accessible = result.sources.filter((s) => s.fetch_status === "ok" && s.text_length > 0).length;
   const analyzed = new Date(result.analyzed_at).toLocaleString();
 
   return (
