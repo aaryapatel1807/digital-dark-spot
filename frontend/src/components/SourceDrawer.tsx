@@ -1,5 +1,5 @@
 import { CalendarClock, ExternalLink, FlaskConical, Globe, X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { AnalysisResponse, SourceRecord } from "../lib/types";
 
 export function SourceDrawer({
@@ -13,10 +13,37 @@ export function SourceDrawer({
   focusQuestionId?: string;
   onClose: () => void;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     if (!source) return;
+    // Keyboard users previously could tab out behind the drawer, and
+    // focus stayed on the page behind it. Now: focus moves in, Tab
+    // cycles inside the panel, Escape closes, focus returns.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), a[href], input, textarea, [tabindex]:not([tabindex='-1'])",
+        ),
+      ).filter((el) => !el.hasAttribute("disabled") && el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     const previous = document.body.style.overflow;
@@ -24,6 +51,7 @@ export function SourceDrawer({
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = previous;
+      previouslyFocused?.focus?.();
     };
   }, [source, onClose]);
 
@@ -44,7 +72,7 @@ export function SourceDrawer({
         onClick={onClose}
         className="drawer-backdrop absolute inset-0 h-full w-full cursor-default bg-ink/40"
       />
-      <aside className="drawer-panel absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-lift">
+      <aside ref={panelRef} className="drawer-panel absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-lift">
         <div className="flex items-start justify-between gap-3 border-b border-line p-5">
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-inksoft">
@@ -64,6 +92,7 @@ export function SourceDrawer({
             <h2 className="mt-2 font-display text-xl leading-snug">{source.title ?? source.id}</h2>
           </div>
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close"

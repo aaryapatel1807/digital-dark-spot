@@ -105,6 +105,7 @@ export function ResearchInput({
         <div>
           <FieldLabel hint="Required for live analysis">Research goal</FieldLabel>
           <textarea
+            aria-label="Research goal"
             value={form.goal}
             onChange={(event) => set({ goal: event.target.value })}
             rows={2}
@@ -121,6 +122,7 @@ export function ResearchInput({
             {form.questions.map((question, i) => (
               <div key={i} className="flex gap-2">
                 <input
+                  aria-label={`Question ${i + 1}`}
                   value={question}
                   onChange={(event) => set({ questions: updateList(form.questions, i, event.target.value) })}
                   placeholder={`Question ${i + 1} — e.g. Who is eligible?`}
@@ -146,6 +148,7 @@ export function ResearchInput({
               {form.urls.map((url, i) => (
                 <div key={i} className="flex gap-2">
                   <input
+                    aria-label={`Source URL ${i + 1}`}
                     value={url}
                     onChange={(event) => set({ urls: updateList(form.urls, i, event.target.value) })}
                     placeholder="https://example.com/a-public-page"
@@ -171,6 +174,7 @@ export function ResearchInput({
                 <div key={i} className="rounded-xl border border-line bg-paper p-3">
                   <div className="flex gap-2">
                     <input
+                      aria-label={`Pasted text ${i + 1} title`}
                       value={item.title}
                       onChange={(event) =>
                         set({ texts: updateList(form.texts, i, { ...item, title: event.target.value }) })
@@ -184,6 +188,7 @@ export function ResearchInput({
                     />
                   </div>
                   <textarea
+                    aria-label={`Pasted text ${i + 1}`}
                     value={item.text}
                     onChange={(event) =>
                       set({ texts: updateList(form.texts, i, { ...item, text: event.target.value }) })

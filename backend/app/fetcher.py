@@ -45,6 +45,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from requests.exceptions import SSLError
 
 from .config import get_settings
 from .schemas import FetchResponse, FetchStatus
@@ -235,7 +236,11 @@ def fetch_url_record(raw_url: str) -> FetchedPage:
             )
         except requests.Timeout:
             return FetchedPage(url=current, status="timeout", error="The site did not answer in time.")
-        except requests.SSLError:
+        except SSLError:
+            # NB: requests.SSLError does NOT exist as a top-level attribute
+            # in this requests version — the old code raised AttributeError
+            # here and turned every SSL/proxy failure into a 500. The
+            # exception class must come from requests.exceptions.
             return FetchedPage(url=current, status="failed", error="The site's TLS certificate could not be verified.")
         except requests.RequestException:
             return FetchedPage(url=current, status="failed", error="The page could not be reached (network error).")

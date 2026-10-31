@@ -74,7 +74,11 @@ _DENY_CUES = {
 }
 
 _NUMBER_PATTERNS = [
-    ("money", re.compile(r"(?:₹|\$|€|£)\s?\d[\d,]*(?:\.\d+)?")),
+    # Rs./INR matter in the Indian scholarship context the demo uses:
+    # "Rs. 10000" previously produced no money value at all, so a real
+    # fee disagreement was silently missed. Lakh/crore words are still
+    # NOT parsed — see the audit report limitation.
+    ("money", re.compile(r"(?:₹|\$|€|£|Rs\.?|INR)\s?\d[\d,]*(?:\.\d+)?", re.I)),
     ("percent", re.compile(r"\d[\d,]*(?:\.\d+)?\s?%")),
     ("year", re.compile(r"\b(?:19|20)\d{2}\b")),
     ("date", re.compile(r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b", re.I)),
@@ -121,8 +125,32 @@ _SYNONYMS: dict[str, set[str]] = {
 }
 
 
+_ABBREV_TAIL = re.compile(
+    r"(?:^|\s)(?:Rs|Dr|Mr|Mrs|Ms|St|Vs|etc|approx|No|Fig|Prof|Sr|Jr|Inc|Ltd|Co|e\.g|i\.e|[A-Z])\.$",
+    re.I,
+)
+
+
 def _sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[.!?…])\s+|\n+", text)
+    """Split into sentences without severing abbreviations.
+
+    The old splitter broke on every period, so "Rs. 10000" became two
+    fragments — "The scholarship fee is Rs." and "10000 per year…" —
+    and the fee sentence carried no number at all, which silently
+    killed numeric conflict detection for Rs. amounts. A boundary
+    after a known abbreviation (Rs., Dr., e.g., a single initial)
+    is not a sentence end. Quotes stay verbatim substrings: nothing
+    here rewrites the text, it only chooses where to cut.
+    """
+    parts: list[str] = []
+    start = 0
+    for match in re.finditer(r"[.!?…]\s+|\n+", text):
+        boundary = match.group(0)
+        if "\n" not in boundary and _ABBREV_TAIL.search(text[: match.start() + 1]):
+            continue
+        parts.append(text[start : match.end()])
+        start = match.end()
+    parts.append(text[start:])
     out: list[str] = []
     for part in parts:
         sentence = part.strip()

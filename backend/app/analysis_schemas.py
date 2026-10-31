@@ -41,6 +41,15 @@ class PastedText(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     text: str = Field(min_length=1, max_length=200_000)
 
+    @model_validator(mode="after")
+    def _check_not_blank(self) -> "PastedText":
+        # min_length=1 alone lets "   " through; the collector then
+        # normalizes it to empty text and the source counts as neither
+        # accessible nor inaccessible. Reject blank text up front.
+        if not self.text.strip():
+            raise ValueError("Pasted text must contain non-whitespace characters.")
+        return self
+
 
 class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")

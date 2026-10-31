@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .analysis_schemas import AnalysisResponse, AnalyzeRequest
@@ -30,6 +30,7 @@ from .analyzer import analyze
 from .collector import collect_sources
 from .config import get_settings
 from .fetcher import fetch_public_url
+from .ratelimit import check_rate_limit
 from .sample import build_sample_analysis
 from .sample_analysis import build_sample_analysis_response
 from .schemas import FetchRequest, FetchResponse, HealthResponse, SampleAnalysis
@@ -44,6 +45,25 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Baseline response headers. The API returns JSON only, so framing
+    and MIME-sniffing protections are safe to set unconditionally."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+def _limit_fetch(request: Request) -> None:
+    check_rate_limit(request, "fetch")
+
+
+def _limit_analyze(request: Request) -> None:
+    check_rate_limit(request, "analyze")
 
 _LIVE_DISCLAIMER = (
     "Live analysis over the sources you supplied. Findings are "
@@ -74,12 +94,12 @@ def sample() -> SampleAnalysis:
 
 
 @app.post("/api/fetch", response_model=FetchResponse)
-def fetch(payload: FetchRequest) -> FetchResponse:
+def fetch(payload: FetchRequest, _rate: None = Depends(_limit_fetch)) -> FetchResponse:
     return fetch_public_url(str(payload.url))
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse)
-def analyze_endpoint(payload: AnalyzeRequest) -> AnalysisResponse:
+def analyze_endpoint(payload: AnalyzeRequest, _rate: None = Depends(_limit_analyze)) -> AnalysisResponse:
     if payload.mode == "offline_sample":
         # The bundled demo has its own fixed topic; a request goal
         # is ignored here so the sample can never look like a live
