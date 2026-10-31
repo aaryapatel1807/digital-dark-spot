@@ -3,7 +3,7 @@ import type { AnalysisResponse } from "../lib/types";
 
 function Stat({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-white p-4">
+    <div className="rounded-xl border border-line bg-card p-4">
       <p className="font-display text-3xl leading-none">{value}</p>
       <p className="mt-1.5 text-sm font-medium">{label}</p>
       {sub ? <p className="text-xs text-inksoft">{sub}</p> : null}

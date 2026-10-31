@@ -1,313 +1,116 @@
-import { BookOpen, Eye, FlaskConical, Loader2, RotateCcw, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { Checklist } from "./components/Checklist";
-import { ConflictExplorer } from "./components/ConflictExplorer";
-import { CoverageMatrix } from "./components/CoverageMatrix";
-import { Overview } from "./components/Overview";
-import { EMPTY_FORM, ResearchInput, type ResearchForm } from "./components/ResearchInput";
-import { SourceDrawer } from "./components/SourceDrawer";
-import { Warnings } from "./components/Warnings";
-import { api, ApiError } from "./lib/api";
-import type {
-  AnalysisResponse,
-  AnalyzeRequest,
-  HealthResponse,
-  SourceRecord,
-} from "./lib/types";
-
-type Phase = "idle" | "loading" | "error" | "done";
-type Mode = "live" | "demo";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FileDown, FlaskConical, Loader2, Printer, RefreshCw } from 'lucide-react';
+import { Checklist } from './components/Checklist';
+import { ConflictExplorer } from './components/ConflictExplorer';
+import { CoverageMatrix } from './components/CoverageMatrix';
+import { Overview } from './components/Overview';
+import { EMPTY_FORM, ResearchInput, type ResearchForm } from './components/ResearchInput';
+import { SourceDrawer } from './components/SourceDrawer';
+import { Warnings } from './components/Warnings';
+import { DashboardLayout, Landing, pages } from './components/Shell';
+import { EvidenceGraph } from './components/EvidenceGraph';
+import { DashboardHome, EmptyResearch, GapList, ResearchHistory, SourceLibrary } from './components/WorkspaceViews';
+import { api, ApiError } from './lib/api';
+import { downloadReport, loadResearch, saveResearch, STORAGE_KEY, type SavedResearch } from './lib/workspace';
+import type { AnalyzeRequest, HealthResponse, SourceRecord } from './lib/types';
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>("live");
-  const [form, setForm] = useState<ResearchForm>(EMPTY_FORM);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [result, setResult] = useState<AnalysisResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [lastPayload, setLastPayload] = useState<AnalyzeRequest | null>(null);
-  const [drawer, setDrawer] = useState<{ source: SourceRecord; focusQuestionId?: string } | null>(null);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [healthError, setHealthError] = useState<string | null>(null);
-
-  const checkHealth = useCallback(() => {
-    setHealthError(null);
-    api
-      .health()
-      .then(setHealth)
-      .catch((err: unknown) => {
-        setHealth(null);
-        setHealthError(err instanceof ApiError ? err.message : "Backend unreachable.");
-      });
-  }, []);
-
-  useEffect(checkHealth, [checkHealth]);
-
-  const runAnalysis = useCallback(async (payload: AnalyzeRequest) => {
-    setPhase("loading");
-    setError(null);
-    setResult(null);
-    setLastPayload(payload);
-    try {
-      const response = await api.analyze(payload);
-      setResult(response);
-      setPhase("done");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong while analyzing.");
-      setPhase("error");
-    }
-  }, []);
-
-  const submit = () => {
-    setFormError(null);
-    if (mode === "demo") {
-      void runAnalysis({ mode: "offline_sample" });
-      return;
-    }
-    const goal = form.goal.trim();
-    if (goal.length < 3) {
-      setFormError("Add a research goal of at least 3 characters.");
-      return;
-    }
-    const urls = form.urls.map((u) => u.trim()).filter(Boolean);
-    const badUrl = urls.find((u) => !/^https?:\/\//i.test(u));
-    if (badUrl) {
-      setFormError(`URLs must start with http:// or https:// — check “${badUrl}”.`);
-      return;
-    }
-    const texts = form.texts
-      .filter((t) => t.text.trim())
-      .map((t) => (t.title.trim() ? { title: t.title.trim(), text: t.text } : { text: t.text }));
-    if (urls.length + texts.length === 0) {
-      setFormError("Add at least one source URL or pasted text to analyze.");
-      return;
-    }
-    if (urls.length + texts.length > 20) {
-      setFormError("At most 20 sources per analysis — remove some URLs or pasted texts.");
-      return;
-    }
-    const questions = form.questions.map((q) => q.trim()).filter(Boolean);
-    void runAnalysis({
-      mode: "live",
-      goal,
-      ...(questions.length > 0 ? { questions } : {}),
-      ...(urls.length > 0 ? { urls } : {}),
-      ...(texts.length > 0 ? { texts } : {}),
-    });
+  const [path,setPath]=useState(window.location.pathname.replace(/\/$/,'') || '/');
+  const navigate=useCallback((to:string)=>{window.history.pushState({},'',to);setPath(to);window.scrollTo(0,0);},[]);
+  useEffect(()=>{
+    const pop=()=>setPath(window.location.pathname.replace(/\/$/,'') || '/');
+    const click=(e:MouseEvent)=>{const a=(e.target as Element).closest?.('a');if(!a||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target||a.hasAttribute('download'))return;const url=new URL(a.href);if(url.origin===location.origin&&!url.hash&&(url.pathname==='/'||url.pathname.startsWith('/dashboard'))){e.preventDefault();navigate(url.pathname);}};
+    window.addEventListener('popstate',pop);document.addEventListener('click',click);
+    return ()=>{window.removeEventListener('popstate',pop);document.removeEventListener('click',click);};
+  },[navigate]);
+  const [initial]=useState(loadResearch);
+  const [reports,setReports]=useState(initial.reports);
+  const reportsRef=useRef(reports);
+  const [storageBlocked,setStorageBlocked]=useState(!!initial.error);
+  const [storageError,setStorageError]=useState(initial.error);
+  const [selected,setSelected]=useState(()=>{try{const id=sessionStorage.getItem('gaplens.active');return initial.reports.some(r=>r.id===id)?id!:initial.reports[0]?.id??'';}catch{return initial.reports[0]?.id??'';}});
+  useEffect(()=>{try{sessionStorage.setItem('gaplens.active',selected);}catch{/* Selection still works in memory. */}},[selected]);
+  const active=reports.find(r=>r.id===selected) ?? null;
+  const result=active?.result ?? null;
+  const persist=(next:SavedResearch[])=>{reportsRef.current=next;setReports(next);if(!storageBlocked)setStorageError(saveResearch(next));};
+  const [dark,setDark]=useState(()=>{try{return localStorage.getItem('gaplens.theme')==='dark';}catch{return false;}});
+  useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';try{localStorage.setItem('gaplens.theme',dark?'dark':'light');}catch{/* Theme still works in memory. */}},[dark]);
+  const [mode,setMode]=useState<'live'|'demo'>('live');
+  const [form,setForm]=useState<ResearchForm>(EMPTY_FORM);
+  const [phase,setPhase]=useState<'idle'|'loading'|'error'|'done'>('idle');
+  const [error,setError]=useState<string|null>(null);
+  const [formError,setFormError]=useState<string|null>(null);
+  const [lastPayload,setLastPayload]=useState<AnalyzeRequest|null>(null);
+  const [drawer,setDrawer]=useState<{source:SourceRecord;focusQuestionId?:string}|null>(null);
+  const closeDrawer=useCallback(()=>setDrawer(null),[]);
+  const openSource=(source:SourceRecord,focusQuestionId?:string)=>setDrawer({source,focusQuestionId});
+  const [health,setHealth]=useState<HealthResponse|null>(null);
+  const [healthError,setHealthError]=useState<string|null>(null);
+  const [resetConfirm,setResetConfirm]=useState(false);
+  const checkHealth=useCallback(()=>{setHealthError(null);api.health().then(setHealth).catch((e:unknown)=>{setHealth(null);setHealthError(e instanceof Error?e.message:'Backend unreachable.');});},[]);
+  useEffect(checkHealth,[checkHealth]);
+  const running=useRef(false);
+  const runAnalysis=async(payload:AnalyzeRequest)=>{
+    if(running.current)return;
+    running.current=true;setPhase('loading');setError(null);setLastPayload(payload);
+    try{
+      const response=await api.analyze(payload);
+      const report:SavedResearch={id:crypto.randomUUID(),title:response.goal,result:response,completed:[]};
+      persist([report,...reportsRef.current]);setSelected(report.id);setPhase('done');navigate('/dashboard/reports');
+    }catch(e){setError(e instanceof ApiError?e.message:'Analysis failed. Your inputs are still available.');setPhase('error');}
+    finally{running.current=false;}
   };
-
-  const switchMode = (next: Mode) => {
-    setMode(next);
-    setResult(null);
-    setPhase("idle");
-    setError(null);
+  const submit=()=>{
     setFormError(null);
+    if(mode==='demo'){void runAnalysis({mode:'offline_sample'});return;}
+    const goal=form.goal.trim();
+    if(goal.length<3){setFormError('Add a research goal of at least 3 characters.');return;}
+    const urls=form.urls.map(u=>u.trim()).filter(Boolean);
+    if(urls.some(u=>{try{return !['http:','https:'].includes(new URL(u).protocol);}catch{return true;}})){setFormError('Use valid public URLs starting with http:// or https://.');return;}
+    const texts=form.texts.filter(t=>t.text.trim()).map(t=>({...(t.title.trim()?{title:t.title.trim()}:{}),text:t.text}));
+    if(!urls.length&&!texts.length){setFormError('Add at least one source URL or pasted text. Two or more sources allow comparison.');return;}
+    if(urls.length+texts.length>20){setFormError('At most 20 sources per analysis.');return;}
+    const questions=form.questions.map(q=>q.trim()).filter(Boolean);
+    void runAnalysis({mode:'live',goal,urls,texts,...(questions.length?{questions}:{})});
   };
-
-  const clearAll = () => {
-    setForm(EMPTY_FORM);
-    setResult(null);
-    setPhase("idle");
-    setError(null);
-    setFormError(null);
-  };
-
-  const openSource = (source: SourceRecord, focusQuestionId?: string) =>
-    setDrawer({ source, focusQuestionId });
-
-  const liveInputCount =
-    form.urls.filter((u) => u.trim()).length + form.texts.filter((t) => t.text.trim()).length;
-
-  return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-line bg-paper/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <p className="flex items-center gap-2">
-            <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-paper">
-              <Eye size={17} />
-            </span>
-            <span className="font-display text-xl font-bold leading-none">GapLens</span>
-            <span className="hidden text-sm text-inksoft sm:inline">Research intelligence</span>
-          </p>
-          {health ? (
-            <p className="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium">
-              <span className="h-2 w-2 rounded-full bg-sourced" />
-              Backend connected · {health.service} {health.version}
-            </p>
-          ) : (
-            <p className="flex items-center gap-2 rounded-full border border-coral/40 bg-white px-3 py-1.5 text-xs font-medium text-coral">
-              <WifiOff size={13} />
-              {healthError ?? "Checking backend…"}
-              <button type="button" onClick={checkHealth} className="font-semibold underline">
-                Retry
-              </button>
-            </p>
-          )}
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 pb-16">
-        <section className="pt-8">
-          <h1 className="max-w-2xl font-display text-4xl leading-tight sm:text-5xl">
-            Find the dark spots in what you read.
-          </h1>
-          <p className="mt-3 max-w-2xl text-base leading-relaxed text-inksoft">
-            GapLens compares sources on one topic and surfaces what is missing, what disagrees, and what to verify
-            next — with the evidence shown, and findings labelled as potential signals, never as facts.
-          </p>
-
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <div className="inline-flex rounded-xl border border-line bg-white p-1 shadow-card" role="group" aria-label="Analysis mode">
-              <button
-                type="button"
-                onClick={() => switchMode("live")}
-                aria-pressed={mode === "live"}
-                className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                  mode === "live" ? "bg-indigoaccent text-white" : "text-inksoft hover:text-ink"
-                }`}
-              >
-                Live analysis
-              </button>
-              <button
-                type="button"
-                onClick={() => switchMode("demo")}
-                aria-pressed={mode === "demo"}
-                className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                  mode === "demo" ? "bg-indigoaccent text-white" : "text-inksoft hover:text-ink"
-                }`}
-              >
-                <FlaskConical size={15} /> Demo sample
-              </button>
-            </div>
-            <p className="text-sm text-inksoft">
-              {mode === "live"
-                ? "Runs against the real backend and the sources you supply."
-                : "Bundled scholarship demo — nothing is fetched, and no real page is described."}
-            </p>
-          </div>
-        </section>
-
-        <div id="research-input" className="mt-6 scroll-mt-24">
-          <ResearchInput
-            mode={mode}
-            form={form}
-            onChange={setForm}
-            onAnalyze={submit}
-            onClear={clearAll}
-            analyzing={phase === "loading"}
-            formError={formError}
-          />
-        </div>
-
-        {phase === "loading" ? (
-          <section className="mt-6 rounded-2xl border border-line bg-white p-6 shadow-card" role="status">
-            <p className="flex items-center gap-2 font-semibold">
-              <Loader2 size={18} className="animate-spin text-indigoaccent" /> Analyzing…
-            </p>
-            <p className="mt-1 text-sm text-inksoft">
-              {mode === "demo"
-                ? "Loading the bundled demo through the analysis engine."
-                : `Contacting the backend and reading ${liveInputCount} source${liveInputCount === 1 ? "" : "s"}. This view waits for the full result — no partial progress is shown.`}
-            </p>
-            <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink/10">
-              <div className="loading-sweep h-full w-2/5 rounded-full bg-indigoaccent/70" />
-            </div>
-          </section>
-        ) : null}
-
-        {phase === "error" ? (
-          <section className="mt-6 rounded-2xl border border-coral/40 bg-white p-6 shadow-card" role="alert">
-            <h2 className="font-display text-2xl">Analysis failed</h2>
-            <p className="mt-2 text-sm text-inksoft">{error}</p>
-            <p className="mt-1 text-sm text-inksoft">
-              Nothing was saved and no result is shown. Your inputs are still above — fix them or try again.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => lastPayload && void runAnalysis(lastPayload)}
-                disabled={!lastPayload}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigoaccent px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigohover disabled:opacity-60"
-              >
-                <RotateCcw size={15} /> Retry
-              </button>
-              <button
-                type="button"
-                onClick={() => document.getElementById("research-input")?.scrollIntoView({ behavior: "smooth" })}
-                className="rounded-xl border border-line bg-white px-4 py-2.5 text-sm font-medium text-inksoft transition hover:text-ink"
-              >
-                Edit inputs
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        {phase === "idle" && !result ? (
-          <section className="mt-6 rounded-2xl border border-dashed border-line bg-cream/60 p-8 text-center">
-            <BookOpen size={26} className="mx-auto text-inksoft" />
-            <h2 className="mt-3 font-display text-2xl">No analysis yet</h2>
-            <p className="mx-auto mt-1 max-w-md text-sm text-inksoft">
-              Fill in the brief above and run an analysis, or look at the demo first to see the shape of a result
-              before spending a live run.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                switchMode("demo");
-                void runAnalysis({ mode: "offline_sample" });
-              }}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:opacity-90"
-            >
-              <FlaskConical size={15} /> Try the demo
-            </button>
-          </section>
-        ) : null}
-
-        {result ? (
-          <div className="mt-8 space-y-6">
-            {result.mode === "offline_sample" ? (
-              <section className="flex items-start gap-3 rounded-2xl border border-suggested/40 bg-suggested/10 p-4" role="note">
-                <FlaskConical size={19} className="mt-0.5 shrink-0 text-suggested" />
-                <div className="text-sm">
-                  <p className="font-semibold text-suggested">Demo data — not a live result</p>
-                  <p className="mt-0.5 text-inksoft">{result.disclaimer}</p>
-                </div>
-              </section>
-            ) : null}
-
-            <Overview result={result} />
-            <CoverageMatrix result={result} onOpenSource={openSource} />
-            <ConflictExplorer result={result} onOpenSource={openSource} />
-            <Warnings result={result} onOpenSource={(source) => openSource(source)} />
-            <Checklist result={result} onOpenSource={(source) => openSource(source)} />
-
-            <section className="rounded-2xl border border-line bg-cream/60 p-5 text-sm text-inksoft">
-              <p>
-                <strong className="text-ink">About this result.</strong> {result.disclaimer}
-              </p>
-              <p className="mt-1">
-                Quotes are verbatim passages from the collected text. A question marked “not found” means these
-                sources do not answer it — not that no answer exists anywhere.
-              </p>
-            </section>
-          </div>
-        ) : null}
-
-        <footer className="mt-10 border-t border-line pt-5 text-xs leading-relaxed text-inksoft">
-          <p>
-            SHINCHAN Online Hackathon 2026 · Digital Dark Spot. GapLens never generates citations: a source is
-            cited only when its text was actually collected, with the exact quote attached. Findings say
-            “potential gap” and “possible conflict” — the product never picks a winner between sources.
-          </p>
-        </footer>
-      </main>
-
-      <SourceDrawer
-        source={drawer?.source ?? null}
-        result={result}
-        focusQuestionId={drawer?.focusQuestionId}
-        onClose={() => setDrawer(null)}
-      />
-    </div>
-  );
+  const openReport=(id:string)=>{setSelected(id);setDrawer(null);navigate('/dashboard/reports');};
+  const page=path==='/dashboard'?'':path.replace('/dashboard/','');
+  const title=pages.find(p=>p[0]===page)?.[1] ?? 'Page not found';
+  useEffect(()=>{document.title=path==='/'?'GapLens — Discover what your research is missing':`${title} · GapLens`;},[path,title]);
+  const updateCompleted=(completed:number[])=>{if(active)persist(reports.map(r=>r.id===active.id?{...r,completed}:r));};
+  const checklist=result&&active?<Checklist key={active.id} result={result} done={new Set(active.completed)} onChange={done=>updateCompleted([...done])} onOpenSource={openSource}/>:null;
+  const reportPage=['gaps','conflicts','graph','freshness','checklist','sources','reports'].includes(page);
+  return <><a className="skip-link" href="#main-content">Skip to content</a>{path==='/'?<Landing dark={dark} toggle={()=>setDark(!dark)}/>:<DashboardLayout page={page} dark={dark} toggle={()=>setDark(!dark)} connected={!!health}>
+    {storageError&&<div className="notice warning" role="alert">{storageError}</div>}
+    {phase==='loading'&&page!=='new-research'&&<div className="notice" role="status"><Loader2 className="animate-spin" size={18}/> Analysis is running. Your report will open when it finishes.</div>}
+    {phase==='error'&&page!=='new-research'&&<div className="notice warning" role="alert">{error}<a href="/dashboard/new-research">Return to inputs</a></div>}
+    {page===''&&<DashboardHome reports={reports} open={openReport}/>}
+    {page!==''&&<div className="page-heading"><div><p className="eyebrow">RESEARCH INTELLIGENCE</p><h1>{title}</h1><p>{page==='new-research'?'Start with a question worth answering.':page==='my-research'?'Pick up where your last investigation left off.':'Every finding is a starting point for verification.'}</p></div></div>}
+    {page==='new-research'&&<>
+      <div className="mode-switch" role="group" aria-label="Analysis mode"><button disabled={phase==='loading'} aria-pressed={mode==='live'} onClick={()=>{setMode('live');setFormError(null);}}>Live sources</button><button disabled={phase==='loading'} aria-pressed={mode==='demo'} onClick={()=>{setMode('demo');setFormError(null);}}><FlaskConical size={16}/> Demo sample</button></div>
+      <p className="section-description mb-5">{mode==='demo'?'Bundled fictional scholarship sources. No pages are fetched.':'Free deterministic source analysis. Optional AI suggests questions only; your source text is not sent to the AI provider.'}</p>
+      <ResearchInput mode={mode} form={form} onChange={setForm} onAnalyze={submit} onClear={()=>{setForm(EMPTY_FORM);setFormError(null);setError(null);setPhase('idle');}} analyzing={phase==='loading'} formError={formError}/>
+      {phase==='loading'&&<section className="panel mt-5" role="status"><h2><Loader2 size={20} className="animate-spin"/> Reading and comparing your sources…</h2><p className="section-description">Waiting for the complete backend response. No estimated progress is shown.</p><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink/10"><div className="loading-sweep h-full w-2/5 rounded-full bg-indigoaccent"/></div></section>}
+      {phase==='error'&&<section className="notice warning mt-5" role="alert"><div><strong>Analysis failed</strong><p>{error}</p><p>Your existing reports and current inputs are preserved.</p></div><button className="secondary-button" onClick={()=>lastPayload&&void runAnalysis(lastPayload)}><RefreshCw size={16}/> Retry</button></section>}
+    </>}
+    {page==='my-research'&&<ResearchHistory reports={reports} open={openReport} remove={id=>{persist(reports.filter(r=>r.id!==id));if(id===selected)setSelected(reports.find(r=>r.id!==id)?.id??'');}} rename={(id,title)=>persist(reports.map(r=>r.id===id?{...r,title}:r))}/>}
+    {reportPage&&<>
+      {reports.length>0&&<div className="report-selector"><label htmlFor="active-report">Active research</label><select id="active-report" value={active?.id??''} onChange={e=>{setSelected(e.target.value);setDrawer(null);}}>{!active&&<option value="">Choose a report</option>}{reports.map(r=><option key={r.id} value={r.id}>{r.result.mode==='offline_sample'?'[Demo] ':''}{r.title} · {new Date(r.result.analyzed_at).toLocaleString()}</option>)}</select></div>}
+      {!result?<EmptyResearch/>:<div className="report-content space-y-6" key={active!.id}>
+        {result.mode==='offline_sample'&&<div className="notice warning" role="note"><FlaskConical size={20}/><div><strong>Demo data — not a live result</strong><p>{result.disclaimer}</p></div></div>}
+        {page==='reports'&&<><div className="report-actions"><button className="secondary-button" onClick={()=>downloadReport(active!)}><FileDown size={17}/> Export JSON</button><button className="secondary-button" onClick={()=>window.print()}><Printer size={17}/> Print / save PDF</button><a className="secondary-button" href="/dashboard/graph">Explore evidence graph</a></div><Overview result={result}/><section className="panel"><h2>Evidence-backed passages</h2><p className="section-description">Extractive highlights, not generated answers. Quotations match the collected text; that does not establish their truth.</p>{result.coverage.filter(c=>c.evidence.length).map(c=><article className="evidence-highlight" key={c.question_id}><h3>{c.question}</h3>{c.evidence.slice(0,2).map((e,i)=><blockquote key={i}><button className="source-chip" onClick={()=>{const s=result.sources.find(s=>s.id===e.source_id);if(s)openSource(s,c.question_id);}}>{e.source_id}</button> “{e.quote}”</blockquote>)}</article>)}</section></>}
+        {(page==='gaps'||page==='reports')&&<><CoverageMatrix result={result} onOpenSource={openSource}/><GapList result={result} onOpenSource={openSource}/></>}
+        {(page==='conflicts'||page==='reports')&&<ConflictExplorer result={result} onOpenSource={openSource}/>}
+        {page==='graph'&&<EvidenceGraph result={result} onOpenSource={openSource}/>}
+        {(page==='freshness'||page==='reports')&&<Warnings result={result} onOpenSource={openSource}/>}
+        {(page==='checklist'||page==='reports')&&checklist}
+        {(page==='sources'||page==='reports')&&<SourceLibrary result={result} onOpenSource={openSource}/>}
+        <p className="report-disclaimer">{result.disclaimer} A matched quote validates provenance, not accuracy. Sources may share an origin; multiple matches do not establish independent corroboration.</p>
+      </div>}
+    </>}
+    {page==='settings'&&<div className="space-y-5"><section className="panel"><h2>Appearance</h2><p className="section-description">Choose a comfortable workspace.</p><button className="secondary-button mt-4" onClick={()=>setDark(!dark)}>Switch to {dark?'light':'dark'} theme</button></section><section className="panel"><h2>Analysis connection</h2><p className="section-description">{health?`Backend ${health.version} is connected. ${health.groq_configured?'Optional AI question suggestions are configured; provider availability is checked on each run.':'No AI key configured. Free deterministic analysis and template questions are available.'}`:healthError??'Checking connection…'}</p><button className="secondary-button mt-4" onClick={checkHealth}><RefreshCw size={16}/> Check connection</button></section><section className="panel"><h2>Your local data</h2><p className="section-description">Reports, quoted passages, source URLs and checklist progress are saved in this browser. They are not synced between devices. Full source text is processed per request by the backend. Export reports before clearing browser data.</p><button className="secondary-button mt-4" onClick={()=>setResetConfirm(true)}>Clear saved research</button>{resetConfirm&&<div className="notice warning mt-4" role="alert"><p>Remove all GapLens reports and verification progress from this browser?</p><button className="secondary-button" onClick={()=>{try{localStorage.removeItem(STORAGE_KEY);setStorageBlocked(false);setStorageError(null);setReports([]);reportsRef.current=[];setSelected('');setResetConfirm(false);}catch{setStorageError('Browser storage could not be cleared.');}}}>Clear all reports</button><button className="secondary-button" onClick={()=>setResetConfirm(false)}>Cancel</button></div>}</section><section className="panel"><h2>GapLens 2.0</h2><p className="section-description">A local evidence workspace for Digital Dark Spot. Keyword coverage can miss paraphrases and can match irrelevant text. Numeric or stance differences are possible conflicts, not confirmed contradictions. Publication dates are metadata, not proof of accuracy.</p></section></div>}
+    {!pages.some(p=>p[0]===page)&&<section className="panel"><h2>Page not found</h2><a className="primary-button mt-4" href="/dashboard">Return to dashboard</a></section>}
+  </DashboardLayout>}
+  <SourceDrawer source={drawer?.source??null} result={result} focusQuestionId={drawer?.focusQuestionId} onClose={closeDrawer}/>
+  </>;
 }

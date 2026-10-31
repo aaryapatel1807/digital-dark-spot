@@ -27,6 +27,7 @@ audit them in one place.
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -80,9 +81,9 @@ _DENY_CUES = {
 _NUMBER_PATTERNS = [
     # Rs./INR matter in the Indian scholarship context the demo uses:
     # "Rs. 10000" previously produced no money value at all, so a real
-    # fee disagreement was silently missed. Lakh/crore words are still
-    # NOT parsed — see the audit report limitation.
-    ("money", re.compile(r"(?:₹|\$|€|£|Rs\.?|INR)\s?\d[\d,]*(?:\.\d+)?", re.I)),
+    # fee disagreement was silently missed. Currency aliases and
+    # lakh/crore scales are normalized for comparison, never in quotes.
+    ("money", re.compile(r"(?:₹|\$|€|£|Rs\.?|INR)\s?\d[\d,]*(?:\.\d+)?(?:\s*(?:lakhs?|crores?|million|thousand))?", re.I)),
     ("percent", re.compile(r"\d[\d,]*(?:\.\d+)?\s?%")),
     ("year", re.compile(r"\b(?:19|20)\d{2}\b")),
     ("date", re.compile(r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b", re.I)),
@@ -227,7 +228,15 @@ def _numbers(sentence: str) -> list[tuple[str, str]]:
     for kind, pattern in _NUMBER_PATTERNS:
         for match in pattern.finditer(sentence):
             value = re.sub(r"[\s,]", "", match.group(0)).lower()
-            found.append((kind, value))
+            detected_kind = kind
+            if kind == "money":
+                currency = re.match(r"₹|\$|€|£|rs\.?|inr", value).group()
+                currency = "INR" if currency in {"₹", "rs", "rs.", "inr"} else currency
+                amount = Decimal(re.search(r"\d+(?:\.\d+)?", value).group())
+                scale = next((factor for word, factor in (("lakh", 100000), ("crore", 10000000), ("million", 1000000), ("thousand", 1000)) if word in value), 1)
+                value = f"{currency}:{(amount * scale).normalize()}"
+                detected_kind = f"money ({currency})"
+            found.append((detected_kind, value))
     return found
 
 
@@ -350,19 +359,19 @@ def _validate(
 ) -> tuple[AnalysisResponse, list[str]]:
     """Drop any reference or quote that does not check out. Never crash."""
     notes: list[str] = []
-    valid_ids = {s.id for s in response.sources}
+    valid_ids = {s.id for s in response.sources if s.fetch_status == "ok"}
 
     def quote_ok(source_id: str, quote: str) -> bool:
         full = texts.get(source_id)
-        if full is None:
+        if not full or not quote.strip():
             return False
         return _normalize_for_match(quote) in _normalize_for_match(full)
 
     coverage: list[QuestionCoverage] = []
     for item in response.coverage:
-        supporting = [s for s in item.supporting_source_ids if s in valid_ids]
         evidence = [e for e in item.evidence if e.source_id in valid_ids and quote_ok(e.source_id, e.quote)]
-        dropped = (len(item.supporting_source_ids) - len(supporting)) + (len(item.evidence) - len(evidence))
+        supporting = list(dict.fromkeys(e.source_id for e in evidence))
+        dropped = sum(s not in supporting for s in item.supporting_source_ids) + (len(item.evidence) - len(evidence))
         if dropped:
             notes.append(f"Dropped {dropped} unverifiable reference(s) for {item.question_id}.")
         status = item.status
@@ -376,7 +385,7 @@ def _validate(
     conflicts: list[PossibleConflict] = []
     for conflict in response.conflicts:
         values = [v for v in conflict.values if v.source_id in valid_ids and quote_ok(v.source_id, v.quote)]
-        if len(values) < 2:
+        if len({v.source_id for v in values}) < 2 or conflict.question_id not in {c.question_id for c in coverage}:
             notes.append(f"Dropped an unverifiable possible conflict for {conflict.question_id}.")
             continue
         conflicts.append(PossibleConflict(
@@ -402,7 +411,59 @@ def _validate(
         "unanswered_questions": unanswered, "coverage_percent": coverage_percent,
         "gaps": gaps, "actions": actions,
     })
+    # Dependent findings must be derived from validated evidence, not
+    # left behind after a quote or source has been rejected.
+    cleaned = _rebuild_findings(cleaned)
     return cleaned, notes
+
+
+def _rebuild_findings(response: AnalysisResponse) -> AnalysisResponse:
+    records = {s.id: s for s in response.sources}
+    today = response.analyzed_at.date()
+    threshold = get_settings().freshness_stale_after_days
+    gaps: list[GapItem] = []
+    for row in response.coverage:
+        def gap(kind, detail, severity):
+            gaps.append(GapItem(kind=kind, question_id=row.question_id,
+                                question=row.question, detail=detail, severity=severity))
+        if row.status == "not_found":
+            gap("unanswered", "No matching evidence was found in the reviewed sources. This does not prove no answer exists.", "high")
+        elif row.status == "partial":
+            gap("partial", "Only partial keyword coverage was found; inspect the passages for a complete answer.", "medium")
+        else:
+            sources = [records[s] for s in row.supporting_source_ids]
+            if len(sources) == 1:
+                gap("single_source", "Only one source covers this question. Corroborate it before relying on it.", "low")
+            fresh = [s for s in sources if s.published_date and 0 <= (today - s.published_date).days <= threshold]
+            if sources and not fresh:
+                old = any(s.published_date and (today - s.published_date).days > threshold for s in sources)
+                gap("stale_only" if old else "undated_only",
+                    "Supporting sources are old, undated, or future-dated; no current dated evidence was found." if old else
+                    "No supporting source has a verifiable current publication date.", "medium" if old else "low")
+    actions: list[ActionItem] = []
+    verbs = {"unanswered": "Find a source that answers", "partial": "Find a fuller answer for", "single_source": "Corroborate", "stale_only": "Re-check against a current source", "undated_only": "Confirm the currency of"}
+    for g in gaps:
+        row = next(c for c in response.coverage if c.question_id == g.question_id)
+        actions.append(ActionItem(rank=0, action=f"{verbs[g.kind]}: {g.question}", reason=g.detail,
+                                  priority=g.severity, question_ids=[row.question_id], source_ids=row.supporting_source_ids))
+    for conflict in response.conflicts:
+        actions.append(ActionItem(rank=0, action=f"Compare scope, dates and values: {conflict.question}",
+                                  reason=conflict.detail, priority="high", question_ids=[conflict.question_id],
+                                  source_ids=[v.source_id for v in conflict.values]))
+    for source in response.sources:
+        if source.fetch_status != "ok":
+            actions.append(ActionItem(rank=0, action=f"Retry or replace the inaccessible source: {source.url or source.title or source.id}",
+                                      reason=source.error or "Source could not be read.", priority="medium", source_ids=[source.id]))
+    actions.sort(key=lambda a: {"high": 0, "medium": 1, "low": 2}[a.priority])
+    for i, action in enumerate(actions, 1):
+        action.rank = i
+    covered = sum(c.status == "covered" for c in response.coverage)
+    partial = sum(c.status == "partial" for c in response.coverage)
+    readable = sum(s.fetch_status == "ok" and s.text_length > 0 for s in response.sources)
+    summary = (f"Across {readable} readable source(s), {covered} of {len(response.coverage)} question(s) have strong keyword coverage, "
+               f"{partial} have partial coverage and {len(response.unanswered_questions)} have no matching evidence. "
+               f"{len(response.conflicts)} possible conflict(s) need verification. Coverage measures text overlap, not factual correctness.")
+    return response.model_copy(update={"gaps": gaps, "actions": actions, "summary": summary})
 
 
 def analyze(
@@ -446,48 +507,6 @@ def analyze(
             question_id, question, tokens, passages)
         if conflict is not None:
             conflicts.append(conflict)
-        if status == "not_found":
-            gaps.append(GapItem(
-                kind="unanswered", question_id=question_id, question=question,
-                detail="No collected source answers this question. That is a gap in these sources, not proof no answer exists.",
-                severity="high",
-            ))
-        elif status == "partial":
-            gaps.append(GapItem(
-                kind="partial", question_id=question_id, question=question,
-                detail="The collected sources touch on this question but do not fully answer it.",
-                severity="medium",
-            ))
-        if status == "covered":
-            supporting_records = {c.record.id: c.record for c in collected if c.record.id in supporting}
-            if len(supporting) == 1:
-                gaps.append(GapItem(
-                    kind="single_source", question_id=question_id, question=question,
-                    detail="Only one source covers this question. Corroborate it before relying on it.",
-                    severity="low",
-                ))
-            fresh = [
-                r for r in supporting_records.values()
-                if r.date_status == "known" and r.published_date
-                and (today - r.published_date).days <= settings.freshness_stale_after_days
-            ]
-            if supporting and not fresh:
-                any_stale = any(
-                    r.date_status == "known" and r.published_date
-                    and (today - r.published_date).days > settings.freshness_stale_after_days
-                    for r in supporting_records.values()
-                )
-                gaps.append(GapItem(
-                    kind="stale_only" if any_stale else "undated_only",
-                    question_id=question_id, question=question,
-                    detail=(
-                        "Every source covering this question is stale."
-                        if any_stale else
-                        "Every source covering this question is undated, so its currency cannot be checked."
-                    ),
-                    severity="medium" if any_stale else "low",
-                ))
-
     freshness_warnings: list[FreshnessWarning] = []
     for item in accessible:
         record = item.record
@@ -505,77 +524,20 @@ def analyze(
                     age_days=age,
                 ))
 
-    actions: list[ActionItem] = []
-    rank = 1
-    for gap in gaps:
-        if gap.kind == "unanswered":
-            actions.append(ActionItem(rank=rank, action=f"Find a source that answers: {gap.question}",
-                reason="No collected source addresses this question.", priority="high",
-                question_ids=[gap.question_id or ""]))
-            rank += 1
-    for conflict in conflicts:
-        actions.append(ActionItem(rank=rank, action=f"Verify against the official source: {conflict.question}",
-            reason="Collected sources disagree; both quotes are shown in the conflict.", priority="high",
-            question_ids=[conflict.question_id],
-            source_ids=[v.source_id for v in conflict.values]))
-        rank += 1
-    for gap in gaps:
-        if gap.kind == "partial":
-            actions.append(ActionItem(rank=rank, action=f"Find a fuller answer for: {gap.question}",
-                reason="Current sources only partially answer this question.", priority="medium",
-                question_ids=[gap.question_id or ""]))
-            rank += 1
-    for gap in gaps:
-        if gap.kind in ("single_source", "stale_only", "undated_only"):
-            verb = {"single_source": "Corroborate", "stale_only": "Re-check against a current source", "undated_only": "Confirm the currency of"}[gap.kind]
-            actions.append(ActionItem(rank=rank, action=f"{verb}: {gap.question}",
-                reason=gap.detail, priority=gap.severity,
-                question_ids=[gap.question_id or ""],
-                source_ids=[s for s in next((c.supporting_source_ids for c in coverage if c.question_id == gap.question_id), [])]))
-            rank += 1
-    for item in collected:
-        if item.record.fetch_status != "ok":
-            label = item.record.url or item.record.title or item.record.id
-            actions.append(ActionItem(rank=rank, action=f"Retry or replace the inaccessible source: {label}",
-                reason=item.record.error or "The source could not be read.", priority="medium",
-                source_ids=[item.record.id]))
-            rank += 1
-
-    covered = sum(1 for c in coverage if c.status == "covered")
-    partial = sum(1 for c in coverage if c.status == "partial")
-    total = len(coverage) or 1
-    coverage_percent = round(100 * (covered + 0.5 * partial) / total)
-    unanswered = [c.question for c in coverage if c.status == "not_found"]
-    stale_count = sum(1 for w in freshness_warnings if w.kind == "stale")
-    undated_count = sum(1 for w in freshness_warnings if w.kind == "undated")
-    if not accessible:
-        summary = (
-            "No sources could be read, so no question could be answered from evidence. "
-            "Fix the inaccessible inputs first, then re-run the analysis."
-        )
-    else:
-        summary = (
-            f"Across {len(accessible)} accessible source(s) "
-            f"({len(inaccessible_ids)} inaccessible), {covered} of {len(coverage)} question(s) "
-            f"are covered, {partial} partially, and {len(unanswered)} unanswered. "
-            f"Coverage: {coverage_percent}%. {len(conflicts)} possible conflict(s) need verification. "
-            f"{stale_count} stale and {undated_count} undated source(s) limit how far dates can be trusted."
-        )
-
     response = AnalysisResponse(
         mode=mode,
         goal=goal,
         questions_analyzed=len(coverage),
-        coverage_percent=coverage_percent,
-        summary=summary,
+        coverage_percent=0,
+        summary="",
         disclaimer=disclaimer,
         sources=records,
         coverage=coverage,
-        unanswered_questions=unanswered,
+        unanswered_questions=[],
         gaps=gaps,
         conflicts=conflicts,
         freshness_warnings=freshness_warnings,
-        actions=actions,
+        actions=[],
         inaccessible_source_ids=inaccessible_ids,
         analysis_method=method,
         notes=notes,

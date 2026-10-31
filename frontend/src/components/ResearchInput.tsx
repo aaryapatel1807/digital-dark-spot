@@ -31,7 +31,7 @@ function RemoveButton({ onClick, label }: { onClick: () => void; label: string }
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="rounded-lg border border-line bg-white p-2 text-inksoft transition hover:border-coral/50 hover:text-coral"
+      className="rounded-lg border border-line bg-card p-2 text-inksoft transition hover:border-coral/50 hover:text-coral"
     >
       <Trash2 size={15} />
     </button>
@@ -44,7 +44,7 @@ function AddButton({ onClick, children, disabled }: { onClick: () => void; child
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-medium text-inksoft transition hover:border-indigoaccent/50 hover:text-indigoaccent disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-sm font-medium text-inksoft transition hover:border-indigoaccent/50 hover:text-indigoaccent disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Plus size={15} /> {children}
     </button>
@@ -78,7 +78,7 @@ export function ResearchInput({
   const removeFrom = <T,>(list: T[], index: number): T[] => list.filter((_, i) => i !== index);
 
   return (
-    <section className="rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
+    <section className="rounded-2xl border border-line bg-card p-5 shadow-card sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl leading-tight">Research brief</h2>
@@ -180,7 +180,7 @@ export function ResearchInput({
                         set({ texts: updateList(form.texts, i, { ...item, title: event.target.value }) })
                       }
                       placeholder="Source title (optional)"
-                      className="flex-1 rounded-xl border border-line bg-white px-3 py-2 text-sm placeholder:text-inksoft/60"
+                      className="flex-1 rounded-xl border border-line bg-card px-3 py-2 text-sm placeholder:text-inksoft/60"
                     />
                     <RemoveButton
                       onClick={() => set({ texts: removeFrom(form.texts, i) })}
@@ -195,7 +195,7 @@ export function ResearchInput({
                     }
                     rows={3}
                     placeholder="Paste the text to check…"
-                    className="mt-2 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm placeholder:text-inksoft/60"
+                    className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm placeholder:text-inksoft/60"
                   />
                 </div>
               ))}
@@ -228,12 +228,12 @@ export function ResearchInput({
           type="button"
           onClick={onClear}
           disabled={analyzing}
-          className="rounded-xl border border-line bg-white px-4 py-2.5 text-sm font-medium text-inksoft transition hover:border-ink/30 hover:text-ink disabled:opacity-60"
+          className="rounded-xl border border-line bg-card px-4 py-2.5 text-sm font-medium text-inksoft transition hover:border-ink/30 hover:text-ink disabled:opacity-60"
         >
           Clear
         </button>
         <p className="text-xs text-inksoft">
-          Private, paywalled, and local addresses are refused, never fetched. Nothing you paste is stored.
+        Public pages and pasted text only. Reports save excerpts and evidence quotes in this browser; full source text is processed per request.
         </p>
       </div>
     </section>

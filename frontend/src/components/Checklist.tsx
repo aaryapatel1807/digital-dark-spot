@@ -11,34 +11,36 @@ const PRIORITY_STYLE: Record<Priority, string> = {
 export function Checklist({
   result,
   onOpenSource,
+  done,
+  onChange,
 }: {
   result: AnalysisResponse;
   onOpenSource: (source: SourceRecord) => void;
+  done: Set<number>;
+  onChange: (done: Set<number>) => void;
 }) {
-  const [done, setDone] = useState<Set<number>>(new Set());
+  const [filter, setFilter] = useState('all');
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const sourceById = new Map(result.sources.map((s) => [s.id, s]));
+  const visibleActions = result.actions.filter(a => filter === 'all' || (filter === 'pending' ? !done.has(a.rank) : filter === 'completed' ? done.has(a.rank) : a.priority === 'high'));
 
   // Ticks belong to one report. Without this, running a second
   // analysis kept the first report's ticks (same ranks, different
   // actions) and the "x of y checked" count lied about the new run.
   useEffect(() => {
-    setDone(new Set());
     setCopied(false);
     setCopyFailed(false);
   }, [result]);
 
   const toggle = (rank: number) => {
-    setDone((prev) => {
-      const next = new Set(prev);
+      const next = new Set(done);
       if (next.has(rank)) {
         next.delete(rank);
       } else {
         next.add(rank);
       }
-      return next;
-    });
+      onChange(next);
   };
 
   const copy = async () => {
@@ -72,7 +74,7 @@ export function Checklist({
   };
 
   return (
-    <section className="rise-in-late rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
+    <section className="rise-in-late rounded-2xl border border-line bg-card p-5 shadow-card sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 font-display text-2xl leading-tight">
@@ -80,22 +82,22 @@ export function Checklist({
           </h2>
           <p className="mt-1 text-sm text-inksoft">
             Ranked from what blocks a decision to what merely deserves a second look. Ticks are yours alone —
-            they are kept in this browser tab and never sent anywhere.
+            they are saved with this report in your browser. A tick records your review, not proof a claim is true.
           </p>
         </div>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={copy}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-inksoft transition hover:border-indigoaccent/50 hover:text-indigoaccent"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-card px-3 py-2 text-sm font-medium text-inksoft transition hover:border-indigoaccent/50 hover:text-indigoaccent"
           >
             {copied ? <Check size={15} className="text-sourced" /> : <Copy size={15} />}
             {copied ? "Copied" : "Copy list"}
           </button>
           <button
             type="button"
-            onClick={() => setDone(new Set())}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-sm font-medium text-inksoft transition hover:border-indigoaccent/50 hover:text-indigoaccent"
+            onClick={() => onChange(new Set())}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-card px-3 py-2 text-sm font-medium text-inksoft transition hover:border-indigoaccent/50 hover:text-indigoaccent"
           >
             <RotateCcw size={15} /> Reset ticks
           </button>
@@ -105,6 +107,10 @@ export function Checklist({
       <p className="mt-3 text-xs font-medium text-inksoft" role="status">
         {done.size} of {result.actions.length} checked by you
       </p>
+      <progress className="check-progress" value={done.size} max={result.actions.length || 1} aria-label="Verification progress" />
+      <select className="mt-3" aria-label="Filter verification tasks" value={filter} onChange={e => setFilter(e.target.value)}>
+        <option value="all">All tasks</option><option value="pending">Pending</option><option value="completed">Completed</option><option value="high">High priority</option>
+      </select>
       {copyFailed ? (
         <p role="alert" className="mt-2 rounded-xl border border-coral/40 bg-coral/5 p-3 text-sm text-coral">
           Copy was blocked by this browser. Select the list below by hand instead — the full text is in the
@@ -116,15 +122,15 @@ export function Checklist({
         <p className="mt-3 rounded-xl border border-line bg-cream p-4 text-sm text-inksoft">
           Nothing to verify next: every question is covered, no conflicts were found, and every source was read.
         </p>
-      ) : (
+      ) : visibleActions.length === 0 ? <p className="empty-copy">No tasks match this filter.</p> : (
         <ol className="mt-3 space-y-2">
-          {result.actions.map((action) => {
+          {visibleActions.map((action) => {
             const checked = done.has(action.rank);
             return (
               <li
                 key={action.rank}
                 className={`flex items-start gap-3 rounded-xl border p-3.5 transition ${
-                  checked ? "border-sourced/30 bg-sourced/5" : "border-line bg-white"
+                  checked ? "border-sourced/30 bg-sourced/5" : "border-line bg-card"
                 }`}
               >
                 <input

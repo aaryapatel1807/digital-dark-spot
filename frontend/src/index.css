@@ -1,8 +1,9 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root { --ink: 25 35 56; --muted: 87 101 124; --paper: 247 249 253; --card: 255 255 255; --soft: 239 243 250; --line: 222 229 240; --accent: 79 70 207; --green: 25 118 85; --amber: 147 91 15; --red: 182 61 65; color-scheme: light; }
+:root[data-theme="dark"] { --ink: 231 237 248; --muted: 166 181 205; --paper: 13 20 35; --card: 22 32 50; --soft: 30 43 64; --line: 49 64 87; --accent: 169 161 255; --green: 108 219 170; --amber: 242 190 101; --red: 255 152 155; color-scheme: dark; }
 
 @layer base {
   body {

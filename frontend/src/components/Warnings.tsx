@@ -13,7 +13,7 @@ export function Warnings({
   const hasAny = result.freshness_warnings.length > 0 || inaccessible.length > 0;
 
   return (
-    <section className="rise-in-late rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
+    <section className="rise-in-late rounded-2xl border border-line bg-card p-5 shadow-card sm:p-6">
       <h2 className="font-display text-2xl leading-tight">Freshness &amp; uncertainty</h2>
       <p className="mt-1 text-sm text-inksoft">
         Dates are taken from the pages themselves. A source without a date is reported as unknown, never guessed.
@@ -21,8 +21,8 @@ export function Warnings({
 
       {!hasAny ? (
         <p className="mt-5 rounded-xl border border-line bg-cream p-4 text-sm text-inksoft">
-          No freshness warnings and no inaccessible sources in this run. Every source that was read carries a date
-          within the last year.
+          No age-based warnings and no inaccessible sources in this run. A publication date alone does not
+          establish that a source is accurate or current.
         </p>
       ) : null}
 

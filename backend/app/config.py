@@ -30,7 +30,7 @@ def _cors_origins() -> list[str]:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "GapLens"
-    version: str = "0.2.0-analysis"
+    version: str = "2.0.0"
     environment: str = field(default_factory=lambda: os.environ.get("ENVIRONMENT", "development"))
     cors_origins: list[str] = field(default_factory=_cors_origins)
     # Backend-only secret. Optional: the app runs fully in honest

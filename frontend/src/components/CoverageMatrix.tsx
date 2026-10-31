@@ -36,7 +36,7 @@ export function CoverageMatrix({
   const rows = result.coverage.filter((c) => filter === "all" || c.status === filter);
 
   return (
-    <section className="rise-in-late rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
+    <section className="rise-in-late rounded-2xl border border-line bg-card p-5 shadow-card sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl leading-tight">Evidence coverage matrix</h2>
@@ -55,7 +55,7 @@ export function CoverageMatrix({
               className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
                 filter === f.id
                   ? "border-indigoaccent bg-indigoaccent text-white"
-                  : "border-line bg-white text-inksoft hover:border-indigoaccent/50 hover:text-indigoaccent"
+                  : "border-line bg-card text-inksoft hover:border-indigoaccent/50 hover:text-indigoaccent"
               }`}
             >
               {f.label}

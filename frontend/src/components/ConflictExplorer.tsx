@@ -11,7 +11,7 @@ export function ConflictExplorer({
   const sourceById = new Map(result.sources.map((s) => [s.id, s]));
 
   return (
-    <section className="rise-in-late rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
+    <section className="rise-in-late rounded-2xl border border-line bg-card p-5 shadow-card sm:p-6">
       <h2 className="flex items-center gap-2 font-display text-2xl leading-tight">
         <Scale size={22} className="text-suggested" /> Conflict explorer
       </h2>
@@ -40,7 +40,7 @@ export function ConflictExplorer({
                 {conflict.values.map((value) => {
                   const source = sourceById.get(value.source_id);
                   return (
-                    <blockquote key={value.source_id} className="rounded-xl border border-line bg-white p-4">
+                    <blockquote key={value.source_id} className="rounded-xl border border-line bg-card p-4">
                       <button
                         type="button"
                         onClick={() => source && onOpenSource(source, conflict.question_id)}

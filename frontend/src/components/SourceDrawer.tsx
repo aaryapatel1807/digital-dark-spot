@@ -72,7 +72,7 @@ export function SourceDrawer({
         onClick={onClose}
         className="drawer-backdrop absolute inset-0 h-full w-full cursor-default bg-ink/40"
       />
-      <aside ref={panelRef} className="drawer-panel absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-lift">
+      <aside ref={panelRef} className="drawer-panel absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-card shadow-lift">
         <div className="flex items-start justify-between gap-3 border-b border-line p-5">
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-inksoft">
@@ -96,7 +96,7 @@ export function SourceDrawer({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-lg border border-line bg-white p-2 text-inksoft transition hover:border-ink/30 hover:text-ink"
+            className="rounded-lg border border-line bg-card p-2 text-inksoft transition hover:border-ink/30 hover:text-ink"
           >
             <X size={16} />
           </button>
