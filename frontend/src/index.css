@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,7 +10,83 @@
   }
   a:focus-visible,
   button:focus-visible,
-  input:focus-visible {
-    @apply outline-none ring-2 ring-ink ring-offset-2 ring-offset-paper;
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    @apply outline-none ring-2 ring-indigoaccent ring-offset-2 ring-offset-paper;
+  }
+  ::selection {
+    background: #e0e3fa;
+  }
+}
+
+/* Purposeful motion only: results rise once, the drawer slides in,
+ * the loading bar sweeps without ever claiming a percentage. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.rise-in-late {
+  animation: rise-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.drawer-panel {
+  animation: rise-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.drawer-backdrop {
+  animation: fade-in 0.25s ease both;
+}
+
+.loading-sweep {
+  animation: sweep 1.4s ease-in-out infinite;
+}
+
+.matrix-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.matrix-scroll::-webkit-scrollbar-thumb {
+  background: #d8d0bf;
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .rise-in-late,
+  .drawer-panel {
+    animation: none;
+  }
+  .loading-sweep {
+    animation: none;
   }
 }

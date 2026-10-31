@@ -24,9 +24,13 @@ has **no fake search and no fake citations**.
 - **One-URL fetch:** `POST /api/fetch` with `{"url": "..."}` — fetches exactly the public URL the user pastes
   (Requests + BeautifulSoup), returns title + opening text, and turns blocked/paywalled/failed pages into a clear
   message instead of a crash. No analysis is derived from it in this build.
-- **Frontend:** React + Vite + TypeScript + Tailwind + Lucide. One page: backend health, the offline sample
-  (coverage bar, slots, gaps, conflicts with both quotes side by side, checklist), and the fetch preview.
-  It does not yet call `/api/analyze`; that wiring is a frontend task, not a backend redesign.
+- **Frontend:** React + Vite + TypeScript + Tailwind + Lucide — a research intelligence dashboard (warm
+  paper, deep ink, restrained indigo): research brief input (goal, questions, URLs, pasted text), Live /
+  Demo mode switch, overview, interactive evidence coverage matrix, side-by-side conflict explorer, source
+  drawer with links and passages, freshness/uncertainty warnings, and a prioritized verify-next checklist
+  with local ticks and copy. Loading, error + retry, and empty-goal validation states included; nothing is
+  rendered that the backend did not return. The old foundation page (health card, sample view, fetch
+  preview) was replaced by the dashboard; the backend endpoints it used are unchanged.
 - **Analysis:** `POST /api/analyze` — goal + URLs + pasted text in, strict result out (summary, coverage,
   unanswered questions, possible conflicts with both quotes, freshness warnings, prioritized actions).
   `mode: "offline_sample"` returns the bundled demo through the same engine, clearly labelled.
