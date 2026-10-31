@@ -6,8 +6,19 @@ import type {
   SampleAnalysis,
 } from "./types";
 
-/** Backend base URL. Frontend-only config: no secret ever lives here. */
+/** Backend base URL. Frontend-only config: no secret ever lives here.
+ * Dev: VITE_API_URL comes from frontend/.env.development (localhost).
+ * Production: it MUST be set in the hosting dashboard (Vercel env
+ * vars) before building, because Vite bakes it into the bundle.
+ * The localhost fallback below is a dev convenience; if a production
+ * build ever reaches it, warn loudly instead of failing silently
+ * with "Backend unreachable" and no clue why. */
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
+  console.warn(
+    "GapLens: VITE_API_URL is not set for this production build, so API calls will target localhost and fail on the deployed site. Set VITE_API_URL in the hosting dashboard and redeploy.",
+  );
+}
 
 export class ApiError extends Error {
   constructor(

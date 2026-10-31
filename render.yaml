@@ -1,0 +1,40 @@
+# GapLens backend — Render Blueprint (free tier).
+# How to use it: in the Render dashboard, New > Blueprint, pick the
+# digital-dark-spot repo. Render reads this file and creates the
+# service below. Nothing here is a secret: values marked sync: false
+# are filled in on the Render dashboard, never committed.
+#
+# Why Render for the backend (and Vercel for the frontend): the API
+# is a plain persistent FastAPI process (uvicorn). Render runs it
+# unchanged, with no serverless rewrite and no function timeout
+# cutting a long multi-source analysis short. The frontend is a
+# static Vite build, which is exactly what Vercel's free tier does
+# best. See README.md "Deployment (free hosting)" for the full
+# manual steps, including the order (backend first, then frontend,
+# then CORS) and the free-tier caveats (sleep, wake time).
+services:
+  - type: web
+    name: gaplens-backend
+    env: python
+    plan: free
+    # The backend lives in backend/; Render runs build/start from there.
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Render injects $PORT. Do not hardcode a port here.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      # Exact origin of the deployed frontend, e.g.
+      # https://gaplens-xyz.vercel.app — scheme + host only, no path,
+      # no trailing slash. Set this in the dashboard AFTER the
+      # frontend is deployed, then Render restarts the service.
+      # Until then, local origins keep local development working.
+      - key: CORS_ORIGINS
+        sync: false
+      # Optional free Groq key. Leave unset and the API runs in
+      # honest offline sample mode (deterministic engine only).
+      # Set it only in the dashboard, never in this file.
+      - key: GROQ_API_KEY
+        sync: false
