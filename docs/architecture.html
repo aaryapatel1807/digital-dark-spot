@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GapLens — Foundation Architecture</title>
+<style>
+  body { font-family: system-ui, sans-serif; color: #1a1a18; background: #faf7f0; margin: 2rem; }
+  h1 { font-family: Georgia, serif; }
+  .note { color: #555; max-width: 640px; }
+  svg text { font-size: 13px; }
+  .box { fill: #fff; stroke: #1a1a18; stroke-width: 1.5; }
+  .future { fill: #fff; stroke: #b7791f; stroke-dasharray: 6 4; }
+  .arrow { stroke: #1a1a18; stroke-width: 1.5; marker-end: url(#head); }
+</style>
+</head>
+<body>
+<h1>GapLens — foundation architecture</h1>
+<p class="note">Solid boxes exist in this foundation. Dashed boxes are the next layers — shown so the
+foundation's seams are visible, not claimed as built. Secrets (GROQ_API_KEY) live only in the
+backend process; the frontend never receives them.</p>
+<svg width="720" height="420" viewBox="0 0 720 420" role="img" aria-label="Architecture diagram">
+  <defs><marker id="head" markerWidth="8" markerHeight="8" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#1a1a18"/></marker></defs>
+  <rect class="box" x="20" y="40" width="170" height="70" rx="12"/>
+  <text x="105" y="70" text-anchor="middle" font-weight="bold">User (browser)</text>
+  <text x="105" y="90" text-anchor="middle">React + Vite + TS</text>
+  <rect class="box" x="270" y="40" width="200" height="70" rx="12"/>
+  <text x="370" y="70" text-anchor="middle" font-weight="bold">FastAPI backend</text>
+  <text x="370" y="90" text-anchor="middle">/api/health · /sample · /fetch</text>
+  <rect class="box" x="550" y="40" width="150" height="70" rx="12"/>
+  <text x="625" y="70" text-anchor="middle" font-weight="bold">Offline sample</text>
+  <text x="625" y="90" text-anchor="middle">labelled demo data</text>
+  <rect class="box" x="550" y="150" width="150" height="70" rx="12"/>
+  <text x="625" y="180" text-anchor="middle" font-weight="bold">URL fetcher</text>
+  <text x="625" y="200" text-anchor="middle">Requests + BeautifulSoup</text>
+  <rect class="future" x="270" y="260" width="200" height="70" rx="12"/>
+  <text x="370" y="290" text-anchor="middle" font-weight="bold">Next layers (not built)</text>
+  <text x="370" y="310" text-anchor="middle">Analysis · DB · re-check · export</text>
+  <rect class="future" x="550" y="260" width="150" height="70" rx="12"/>
+  <text x="625" y="290" text-anchor="middle" font-weight="bold">Groq (optional)</text>
+  <text x="625" y="310" text-anchor="middle">key: backend only</text>
+  <line class="arrow" x1="190" y1="75" x2="270" y2="75"/>
+  <line class="arrow" x1="470" y1="75" x2="550" y2="75"/>
+  <line class="arrow" x1="470" y1="95" x2="550" y2="185"/>
+  <line class="arrow" x1="370" y1="110" x2="370" y2="260"/>
+  <line class="arrow" x1="470" y1="295" x2="550" y2="295"/>
+  <text x="20" y="380">CORS: backend allows only configured origins (default http://localhost:5173). Frontend env: VITE_API_URL only.</text>
+</svg>
+</body>
+</html>
