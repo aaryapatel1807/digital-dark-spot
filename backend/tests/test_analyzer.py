@@ -90,6 +90,37 @@ def test_numeric_conflict_with_verified_quotes():
         assert value.quote in texts[value.source_id]
 
 
+def test_bare_number_conflict_cgpa():
+    # The judge-facing case: CGPA carries no currency/unit marker,
+    # yet 7.0 vs 7.5 for the same renewal question must still flag.
+    sources = [
+        _src("S1", "Renewal of the scholarship requires a CGPA of 7.0 or above."),
+        _src("S2", "Renewal of the scholarship requires students to maintain a CGPA of 7.5 or above."),
+    ]
+    result = _run(["What CGPA is required for renewal?"], sources)
+    assert result.coverage[0].status == "covered"
+    assert len(result.conflicts) == 1
+    assert result.conflicts[0].label == "possible conflict"
+    assert {v.source_id for v in result.conflicts[0].values} == {"S1", "S2"}
+
+
+def test_bare_number_same_value_is_not_a_conflict():
+    sources = [
+        _src("S1", "Renewal of the scholarship requires a CGPA of 7.0 or above."),
+        _src("S2", "Students must maintain a CGPA of 7.0 for renewal of the scholarship."),
+    ]
+    result = _run(["What CGPA is required for renewal?"], sources)
+    assert not result.conflicts
+
+
+def test_no_official_source_alert():
+    # Pasted texts have no host, so they can never count as official.
+    sources = [_src("S1", "Students are eligible when family income is below the limit.")]
+    result = _run(["Who is eligible?"], sources)
+    assert "No official source was reviewed in this run." in result.summary
+    assert any(a.action == "Find an official source for this topic" and a.priority == "high" for a in result.actions)
+
+
 def test_stance_conflict_with_verified_quotes():
     sources = [
         _src("S1", "Students are eligible for the scholarship when income is below the limit."),

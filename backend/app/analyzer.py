@@ -8,7 +8,9 @@ No LLM output ever becomes a finding here. The engine:
    supporting source as evidence.
 3. Flags possible conflicts two ways, both shown with quotes:
    - numeric: two sources give different money / percent / year /
-     date values for the same question;
+     date / bare-number values for the same question (bare numbers
+     cover scores and counts such as CGPA 7.0 vs 7.5, which carry
+     no currency or unit marker);
    - stance: one source's passage denies a question term that
      another source's passage affirms.
    Both are labelled "possible" — the engine does not adjudicate.
@@ -30,6 +32,7 @@ import re
 from decimal import Decimal
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from urllib.parse import urlparse
 
 from .analysis_schemas import (
     ActionItem,
@@ -87,7 +90,42 @@ _NUMBER_PATTERNS = [
     ("percent", re.compile(r"\d[\d,]*(?:\.\d+)?\s?%")),
     ("year", re.compile(r"\b(?:19|20)\d{2}\b")),
     ("date", re.compile(r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b", re.I)),
+    # Bare numbers last, so money/percent/year/date matches win their
+    # spans (see _numbers): a CGPA, score, mark, seat count or other
+    # unit-free value still counts as a comparable value, but the
+    # same digits are never double-counted as both money and number.
+    ("number", re.compile(r"\b\d[\d,]*(?:\.\d+)?\b")),
 ]
+
+
+_OFFICIAL_HOSTS = (".gov.in", ".nic.in", ".gov")
+_UNIVERSITY_HOSTS = (".ac.in", ".edu", ".edu.in", ".ac.uk")
+_NEWS_HOSTS = {
+    "bbc.com", "bbc.co.uk", "ndtv.com", "timesofindia.indiatimes.com",
+    "indianexpress.com", "thehindu.com", "hindustantimes.com",
+    "reuters.com", "apnews.com",
+}
+
+
+def _source_tier(url: str | None) -> str:
+    """Trust tier from a source URL host only, never from content.
+
+    official = government host, university = academic host,
+    news = a small known-news host list, unknown = everything else
+    (including pasted text, which has no host to judge). The tier is
+    a label for the reviewer, never a verdict on truth.
+    """
+    if not url:
+        return "unknown"
+    host = (urlparse(url).hostname or "").lower()
+    host = host[7:] if host.startswith("www.") else host
+    if host.endswith(_OFFICIAL_HOSTS):
+        return "official"
+    if host.endswith(_UNIVERSITY_HOSTS):
+        return "university"
+    if host in _NEWS_HOSTS:
+        return "news"
+    return "unknown"
 
 
 @dataclass
@@ -225,11 +263,21 @@ def _best_passages(
 
 def _numbers(sentence: str) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
+    claimed_spans: list[tuple[int, int]] = []
     for kind, pattern in _NUMBER_PATTERNS:
         for match in pattern.finditer(sentence):
+            if kind == "number" and any(
+                match.start() < end and start < match.end()
+                for start, end in claimed_spans
+            ):
+                continue
+            if kind != "number":
+                claimed_spans.append((match.start(), match.end()))
             value = re.sub(r"[\s,]", "", match.group(0)).lower()
             detected_kind = kind
-            if kind == "money":
+            if kind == "number":
+                value = str(Decimal(value).normalize())
+            elif kind == "money":
                 currency = re.match(r"₹|\$|€|£|rs\.?|inr", value).group()
                 currency = "INR" if currency in {"₹", "rs", "rs.", "inr"} else currency
                 amount = Decimal(re.search(r"\d+(?:\.\d+)?", value).group())
@@ -454,6 +502,19 @@ def _rebuild_findings(response: AnalysisResponse) -> AnalysisResponse:
         if source.fetch_status != "ok":
             actions.append(ActionItem(rank=0, action=f"Retry or replace the inaccessible source: {source.url or source.title or source.id}",
                                       reason=source.error or "Source could not be read.", priority="medium", source_ids=[source.id]))
+    # Trust-tier alert (Layer 3 Alert 1, lightweight form): if no
+    # readable source is official, add a high-priority verify-next
+    # action. It is appended (not inserted first) so the existing
+    # priority order — unanswered questions first — is preserved.
+    # Pasted texts have no host, so they count as unknown, never as
+    # official. No new gap kind is invented; the alert is an action
+    # plus a summary sentence (below).
+    _readable = [s for s in response.sources if s.fetch_status == "ok" and s.text_length > 0]
+    if _readable and not any(_source_tier(s.url) == "official" for s in _readable):
+        actions.append(ActionItem(
+            rank=0, action="Find an official source for this topic",
+            reason="No official source was reviewed in this run. Findings from non-official sources should be verified against an official source before relying on them.",
+            priority="high", question_ids=[], source_ids=[s.id for s in _readable]))
     actions.sort(key=lambda a: {"high": 0, "medium": 1, "low": 2}[a.priority])
     for i, action in enumerate(actions, 1):
         action.rank = i
@@ -470,6 +531,8 @@ def _rebuild_findings(response: AnalysisResponse) -> AnalysisResponse:
         summary = (f"Across {readable} readable source(s), {covered} of {len(response.coverage)} question(s) have strong keyword coverage, "
                    f"{partial} have partial coverage and {len(response.unanswered_questions)} have no matching evidence. "
                    f"{len(response.conflicts)} possible conflict(s) need verification. Coverage measures text overlap, not factual correctness.")
+        if not any(_source_tier(s.url) == "official" for s in response.sources if s.fetch_status == "ok" and s.text_length > 0):
+            summary += " No official source was reviewed in this run."
     return response.model_copy(update={"gaps": gaps, "actions": actions, "summary": summary})
 
 
