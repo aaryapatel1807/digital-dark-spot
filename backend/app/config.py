@@ -25,7 +25,7 @@ def _cors_origins() -> list[str]:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "GapLens"
-    version: str = "0.1.0-foundation"
+    version: str = "0.2.0-analysis"
     environment: str = field(default_factory=lambda: os.environ.get("ENVIRONMENT", "development"))
     cors_origins: list[str] = field(default_factory=_cors_origins)
     # Backend-only secret. Optional: the app runs fully in honest
@@ -38,6 +38,18 @@ class Settings:
     )
     fetch_timeout_seconds: float = 10.0
     fetch_max_bytes: int = 1_000_000
+    # Analysis-layer limits. These bound every /api/analyze run so one
+    # request cannot fan out into a crawl or a multi-minute job.
+    max_urls_per_request: int = 20
+    max_texts_per_request: int = 20
+    max_total_inputs_per_request: int = 20
+    max_redirects: int = 3
+    max_questions: int = 20
+    pasted_text_max_chars: int = 200_000
+    groq_timeout_seconds: float = 15.0
+    # A source dated older than this is flagged stale. Undated sources
+    # are never guessed: they are reported as unknown.
+    freshness_stale_after_days: int = 365
 
     @property
     def groq_configured(self) -> bool:

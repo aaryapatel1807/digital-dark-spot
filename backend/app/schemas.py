@@ -4,10 +4,13 @@ Every response the frontend renders is typed here first, so the
 frontend's TypeScript types mirror these exactly. Findings are always
 labelled "potential" / "possible" — never stated as confirmed facts.
 
-Deliberately NOT in this foundation: a search endpoint, a citation
-generator, or an analysis engine. Those would be easy to fake and
-hard to defend, so they arrive in a later layer, grounded in real
-fetched text.
+The analysis layer lives in analysis_schemas.py (strict request and
+response models for /api/analyze). This module keeps the foundation
+shapes (health, offline sample, single-URL fetch) unchanged apart
+from the fetch status taxonomy, which gained explicit values so an
+inaccessible URL can say WHY it is inaccessible instead of just
+failing: "not_found" is an HTTP 404/410 from a host that exists,
+"nonexistent" is a host that does not resolve at all.
 """
 
 from __future__ import annotations
@@ -18,7 +21,13 @@ from typing import Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 SlotStatus = Literal["covered", "partial", "gap"]
-FetchStatus = Literal["ok", "blocked", "failed", "unsupported"]
+# "failed" stays for generic failures. "not_found" (HTTP 404/410) and
+# "nonexistent" (DNS failure) are deliberately different statuses:
+# a missing page and a missing host are different facts.
+FetchStatus = Literal[
+    "ok", "blocked", "failed", "unsupported",
+    "not_found", "nonexistent", "timeout", "too_large",
+]
 
 
 class HealthResponse(BaseModel):
