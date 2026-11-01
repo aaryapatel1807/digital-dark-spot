@@ -80,7 +80,8 @@ export default function App() {
   const updateCompleted=(completed:number[])=>{if(active)persist(reports.map(r=>r.id===active.id?{...r,completed}:r));};
   const checklist=result&&active?<Checklist key={active.id} result={result} done={new Set(active.completed)} onChange={done=>updateCompleted([...done])} onOpenSource={openSource}/>:null;
   const reportPage=['gaps','conflicts','graph','freshness','checklist','sources','reports'].includes(page);
-  return <><a className="skip-link" href="#main-content">Skip to content</a>{path==='/'?<Landing dark={dark} toggle={()=>setDark(!dark)}/>:<DashboardLayout page={page} dark={dark} toggle={()=>setDark(!dark)} connected={!!health}>
+  const startFromLanding=(goal:string,demo:boolean)=>{setMode(demo?'demo':'live');if(goal)setForm({...EMPTY_FORM,goal,questions:['']});setFormError(null);setError(null);setPhase('idle');navigate('/dashboard/new-research');};
+  return <><a className="skip-link" href="#main-content">Skip to content</a>{path==='/'?<Landing dark={dark} toggle={()=>setDark(!dark)} onStart={startFromLanding}/>:<DashboardLayout page={page} dark={dark} toggle={()=>setDark(!dark)} connected={!!health}>
     {storageError&&<div className="notice warning" role="alert">{storageError}</div>}
     {phase==='loading'&&page!=='new-research'&&<div className="notice" role="status"><Loader2 className="animate-spin" size={18}/> Analysis is running. Your report will open when it finishes.</div>}
     {phase==='error'&&page!=='new-research'&&<div className="notice warning" role="alert">{error}<a href="/dashboard/new-research">Return to inputs</a></div>}
