@@ -36,6 +36,7 @@ from .sample_analysis import build_sample_analysis_response
 from .schemas import FetchRequest, FetchResponse, HealthResponse, SampleAnalysis
 from .search import SearchFailed, SearchNotConfigured, discover_sources
 from .pdf import PdfRejected, extract_pdf_text
+from .ask import answer_question
 from fastapi import File, UploadFile
 from pydantic import BaseModel, Field
 
@@ -163,6 +164,29 @@ async def pdf_text_endpoint(file: UploadFile = File(...)) -> PdfTextResponse:
     except PdfRejected as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return PdfTextResponse(**result)
+
+
+class AskRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    question: str = Field(min_length=3, max_length=500)
+    result: AnalysisResponse
+
+
+class AskResponse(BaseModel):
+    question: str
+    answered: bool
+    answer: str
+    citations: list[dict] = Field(default_factory=list)
+    related_conflict_questions: list[str] = Field(default_factory=list)
+    related_gap_questions: list[str] = Field(default_factory=list)
+    suggested_actions: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/ask", response_model=AskResponse)
+def ask_endpoint(payload: AskRequest) -> AskResponse:
+    outcome = answer_question(payload.question, payload.result)
+    outcome["citations"] = [c.model_dump() for c in outcome["citations"]]
+    return AskResponse(**outcome)
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse)

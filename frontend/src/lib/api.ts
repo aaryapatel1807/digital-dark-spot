@@ -88,6 +88,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ query }),
     }),
+  ask: (question: string, result: AnalysisResponse) =>
+    request<{
+      answered: boolean;
+      answer: string;
+      citations: { source_id: string; quote: string }[];
+      related_conflict_questions: string[];
+      suggested_actions: string[];
+    }>("/api/ask", {
+      method: "POST",
+      body: JSON.stringify({ question, result }),
+    }),
   pdfText: async (file: File) => {
     const form = new FormData();
     form.append("file", file);

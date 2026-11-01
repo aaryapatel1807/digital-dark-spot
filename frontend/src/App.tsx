@@ -7,6 +7,7 @@ import { Overview } from './components/Overview';
 import { SimpleView } from './components/SimpleView';
 import { SourceDiscovery } from './components/SourceDiscovery';
 import { PdfUpload } from './components/PdfUpload';
+import { AskGapLens } from './components/AskGapLens';
 import { EMPTY_FORM, ResearchInput, type ResearchForm } from './components/ResearchInput';
 import { SourceDrawer } from './components/SourceDrawer';
 import { Warnings } from './components/Warnings';
@@ -111,6 +112,7 @@ export default function App() {
         {(page==='freshness'||(page==='reports'&&view==='research'))&&<Warnings result={result} onOpenSource={openSource}/>}
         {(page==='checklist'||(page==='reports'&&view==='research'))&&checklist}
         {(page==='sources'||(page==='reports'&&view==='research'))&&<SourceLibrary result={result} onOpenSource={openSource}/>}
+        {page==='reports'&&<AskGapLens result={result} onOpenSource={openSource}/>}
         <p className="report-disclaimer">{result.disclaimer} A matched quote validates provenance, not accuracy. Sources may share an origin; multiple matches do not establish independent corroboration.</p>
       </div>}
     </>}
