@@ -47,7 +47,7 @@ from .analysis_schemas import (
 )
 from .collector import CollectedSource
 from .config import get_settings
-from .groq_client import derive_questions_with_groq
+from .groq_client import derive_questions_with_groq, derive_semantic_terms
 
 COVERED_THRESHOLD = 0.50
 PARTIAL_THRESHOLD = 0.25
@@ -137,8 +137,13 @@ class _ScoredPassage:
 
 
 def _stem(word: str) -> str:
-    """Light plural folding so "dates" matches "date". Applied to both
-    sides, so it can only ever merge forms, never invent a term."""
+    """Light suffix folding so "dates" matches "date" and "continued"
+    matches "continuing". Applied to both sides, so it can only ever
+    merge forms, never invent a term."""
+    if len(word) > 5 and word.endswith("ing"):
+        return word[:-3]
+    if len(word) > 4 and word.endswith("ed") and not word.endswith("eed"):
+        return word[:-2]
     return word[:-1] if len(word) > 3 and word.endswith("s") else word
 
 
@@ -147,27 +152,45 @@ def _tokens(text: str) -> set[str]:
     return {_stem(w) for w in words if w not in _STOPWORDS}
 
 
-# Tight, bidirectional synonym pairs for the words research questions
-# most often phrase differently from sources. This only ever SELECTS
-# sentences; every quote it surfaces is still verified verbatim.
-_SYNONYMS: dict[str, set[str]] = {
-    "deadline": {"date"},
-    "date": {"deadline"},
-    "eligible": {"eligibility"},
-    "eligibility": {"eligible"},
-    "amount": {"awarded", "award"},
-    "awarded": {"amount", "award"},
-    "award": {"amount", "awarded"},
-    "apply": {"application"},
-    "application": {"apply"},
-    "renew": {"renewal", "renewed", "continue", "continuing"},
-    "renewal": {"renew", "renewed", "continue", "continuing"},
-    "renewed": {"renew", "renewal", "continue", "continuing"},
-    "continue": {"renew", "renewal", "renewed"},
-    "continuing": {"renew", "renewal", "renewed"},
-    "cost": {"fee", "price"},
-    "fee": {"cost", "price"},
-    "price": {"cost", "fee"},
+# Concept clusters (GapLens 2.0, Step 2): words research questions
+# most often phrase differently from sources, grouped by meaning.
+# This only ever SELECTS sentences; every quote it surfaces is
+# still verified verbatim. Clusters are deliberately tight — a
+# broad cluster would turn every shared topic word into coverage.
+# This is paraphrase-aware matching, NOT embeddings: no local model
+# fits the free container, and no new paid API is added.
+_CONCEPT_CLUSTERS: list[set[str]] = [
+    {"renew", "renewal", "renewed", "renewing", "continue", "continuing", "continued", "extend", "extension"},
+    {"eligible", "eligibility", "qualify", "qualified", "qualifying"},
+    {"deadline", "date"},
+    {"amount", "award", "awarded", "grant", "funding"},
+    {"fee", "cost", "price", "tuition", "charges"},
+    {"document", "documents", "certificate", "proof", "paperwork"},
+    {"apply", "application", "applying", "submit", "submission"},
+    {"select", "selection", "selected", "choose", "chosen"},
+    {"support", "assistance", "aid"},
+    {"college", "university", "institution", "institute"},
+    {"job", "employment", "position", "role", "offer"},
+    {"scheme", "program", "programme", "initiative"},
+    {"process", "procedure", "steps", "step"},
+    {"require", "required", "requirement", "requirements", "needed", "necessary"},
+    {"marks", "score", "grade"},
+    {"contact", "helpline", "helpdesk"},
+]
+_SYNONYMS: dict[str, set[str]] = {}
+for _cluster in _CONCEPT_CLUSTERS:
+    _stemmed = {_stem(w) for w in _cluster}
+    for _term in _stemmed:
+        _SYNONYMS.setdefault(_term, set()).update(_stemmed - {_term})
+
+# Multi-word phrases that carry a concept a single token cannot:
+# "open to undergraduate students" means eligible; "last date to
+# apply" means deadline. Checked against the sentence text, so a
+# phrase match is as verifiable as a token match.
+_PHRASE_SYNONYMS: dict[str, set[str]] = {
+    "eligible": {"open to"},
+    "eligibility": {"open to"},
+    "deadline": {"last date"},
 }
 
 
@@ -205,17 +228,42 @@ def _sentences(text: str) -> list[str]:
     return out
 
 
-def _score(question_tokens: set[str], sentence_tokens: set[str]) -> tuple[float, int]:
+def _score(
+    question_tokens: set[str],
+    sentence_tokens: set[str],
+    sentence_text: str = "",
+    expanded: dict[str, set[str]] | None = None,
+) -> tuple[float, int]:
     """Fraction of question terms found in the sentence, counting a
-    term as found when it or a tight synonym appears."""
+    term as found when it, a concept-cluster synonym, a Groq-proposed
+    equivalent term, or a phrase synonym appears. Expanded terms are
+    alternative surface forms for a question term, never new
+    requirements — the denominator stays the original question terms."""
     if not question_tokens:
         return 0.0, 0
-    matched = sum(
-        1
-        for token in question_tokens
-        if token in sentence_tokens or _SYNONYMS.get(token, set()) & sentence_tokens
-    )
-    return matched / len(question_tokens), matched
+    text = sentence_text.lower()
+    matched = 0
+    weighted = 0.0
+    for token in question_tokens:
+        if token in sentence_tokens:
+            matched += 1
+            weighted += 1.0
+        elif _SYNONYMS.get(token, set()) & sentence_tokens:
+            matched += 1
+            weighted += 1.0
+        elif expanded and expanded.get(token, set()) & sentence_tokens:
+            matched += 1
+            weighted += 1.0
+        elif any(phrase in text for phrase in _PHRASE_SYNONYMS.get(token, set())):
+            # Phrase matches are weaker than token matches (weight 0.5):
+            # a sentence that merely says "open to students" must not
+            # outrank a sentence that actually states the eligibility
+            # terms when both are candidates for the same question.
+            # This kept the demo's income conflict intact: the income
+            # sentence (weight 1.0) still beats the opening sentence.
+            matched += 1
+            weighted += 0.5
+    return weighted / len(question_tokens), matched
 
 
 def _supports(score: float, matched: int) -> bool:
@@ -232,6 +280,7 @@ def _best_passages(
     collected: list[CollectedSource],
     sentences_cache: dict[str, list[str]],
     tokens_cache: dict[str, set[str]],
+    expanded: dict[str, set[str]] | None = None,
 ) -> list[_ScoredPassage]:
     """Best supporting passage per source, with per-run caches.
 
@@ -255,7 +304,7 @@ def _best_passages(
             if tokens is None:
                 tokens = _tokens(sentence)
                 tokens_cache[sentence] = tokens
-            score, matched = _score(question_tokens, tokens)
+            score, matched = _score(question_tokens, tokens, sentence, expanded)
             if score > 0 and (best is None or score > best.score):
                 best = _ScoredPassage(item.record.id, sentence, score, matched)
         if best is not None and _supports(best.score, best.matched):
@@ -550,6 +599,20 @@ def analyze(
     settings = get_settings()
     today = datetime.now(timezone.utc).date()
     questions, method, notes = derive_questions(goal, user_questions)
+    # Optional semantic expansion, one Groq call per run: a mapping
+    # from an original word to its equivalent terms, used only to
+    # select sentences. Any failure (no key, bad JSON, timeout)
+    # yields {} and the static clusters carry the run. Stem both
+    # sides so expanded terms meet sentence tokens on the same
+    # footing; _score checks expanded[token] per token, so one
+    # expanded term can never inflate unrelated tokens.
+    try:
+        _expanded_raw = derive_semantic_terms([q for _, q, _ in questions])
+    except Exception:
+        _expanded_raw = {}
+    expanded_for_score: dict[str, set[str]] = {
+        _stem(word): {_stem(t) for t in terms} for word, terms in _expanded_raw.items()
+    }
     records: list[SourceRecord] = [c.record for c in collected]
     texts: dict[str, str] = {c.record.id: c.text for c in collected if c.text}
     # Identical sources are not independent corroboration. Flag exact
@@ -576,7 +639,7 @@ def analyze(
     tokens_cache: dict[str, set[str]] = {}
     for question_id, question, origin in questions:
         tokens = _tokens(question)
-        passages = _best_passages(tokens, collected, sentences_cache, tokens_cache)
+        passages = _best_passages(tokens, collected, sentences_cache, tokens_cache, expanded_for_score)
         best = passages[0] if passages else None
         if best is not None and best.score >= COVERED_THRESHOLD:
             status = "covered"

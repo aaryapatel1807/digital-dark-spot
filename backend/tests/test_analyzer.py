@@ -132,6 +132,35 @@ def test_renewal_phrased_as_continue_is_covered():
     assert result.coverage[0].status == "covered"
 
 
+def test_eligible_phrased_as_open_to_is_covered():
+    sources = [_src("S1", "This scholarship is open to undergraduate students who passed class 12.")]
+    result = _run(["Who is eligible?"], sources)
+    assert result.coverage[0].status == "covered"
+
+
+def test_deadline_phrased_as_last_date_is_covered():
+    sources = [_src("S1", "The last date to apply for the scholarship is 31 December 2026.")]
+    result = _run(["What is the application deadline?"], sources)
+    assert result.coverage[0].status == "covered"
+
+
+def test_groq_expansion_failure_falls_back_to_clusters(monkeypatch):
+    def _boom(questions):
+        raise RuntimeError("boom")
+    monkeypatch.setattr("app.analyzer.derive_semantic_terms", _boom)
+    sources = [_src("S1", "Recipients may continue receiving financial support in subsequent academic years subject to maintaining eligibility.")]
+    result = _run(["Can this scholarship be renewed?"], sources)
+    assert result.coverage[0].status == "covered"
+
+
+def test_groq_expansion_mapping_is_used(monkeypatch):
+    # Mocked Groq mapping: "amount" may appear as "grant".
+    monkeypatch.setattr("app.analyzer.derive_semantic_terms", lambda questions: {"amount": {"grant"}})
+    sources = [_src("S1", "The grant for selected students is 12000 per year.")]
+    result = _run(["What is the scholarship amount?"], sources)
+    assert result.coverage[0].status == "covered"
+
+
 def test_stance_conflict_with_verified_quotes():
     sources = [
         _src("S1", "Students are eligible for the scholarship when income is below the limit."),
