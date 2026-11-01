@@ -17,7 +17,9 @@ export function ConflictExplorer({
       </h2>
       <p className="mt-1 text-sm text-inksoft">
         Where sources disagree, both sides are shown verbatim. GapLens never picks a winner — verify against the
-        official source.
+        official source. Note: the engine does not compare applicable years, so two statements from different
+        cycles can appear here as a possible difference; check each quote's date before treating it as a
+        contradiction.
       </p>
 
       {result.conflicts.length === 0 ? (
