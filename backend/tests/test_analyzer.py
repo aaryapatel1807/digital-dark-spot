@@ -121,6 +121,17 @@ def test_no_official_source_alert():
     assert any(a.action == "Find an official source for this topic" and a.priority == "high" for a in result.actions)
 
 
+def test_renewal_phrased_as_continue_is_covered():
+    # The brief's semantic example: a question about renewal must
+    # match a passage about continuing support in later years.
+    # Synonyms only SELECT sentences; the quote is still verified.
+    sources = [
+        _src("S1", "Recipients may continue receiving financial support in subsequent academic years subject to maintaining eligibility."),
+    ]
+    result = _run(["Can this scholarship be renewed?"], sources)
+    assert result.coverage[0].status == "covered"
+
+
 def test_stance_conflict_with_verified_quotes():
     sources = [
         _src("S1", "Students are eligible for the scholarship when income is below the limit."),

@@ -4,6 +4,7 @@ import { Checklist } from './components/Checklist';
 import { ConflictExplorer } from './components/ConflictExplorer';
 import { CoverageMatrix } from './components/CoverageMatrix';
 import { Overview } from './components/Overview';
+import { SimpleView } from './components/SimpleView';
 import { EMPTY_FORM, ResearchInput, type ResearchForm } from './components/ResearchInput';
 import { SourceDrawer } from './components/SourceDrawer';
 import { Warnings } from './components/Warnings';
@@ -36,6 +37,7 @@ export default function App() {
   const [dark,setDark]=useState(()=>{try{return localStorage.getItem('gaplens.theme')==='dark';}catch{return false;}});
   useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';try{localStorage.setItem('gaplens.theme',dark?'dark':'light');}catch{/* Theme still works in memory. */}},[dark]);
   const [mode,setMode]=useState<'live'|'demo'>('live');
+  const [view,setView]=useState<'simple'|'research'>('simple');
   const [form,setForm]=useState<ResearchForm>(EMPTY_FORM);
   const [phase,setPhase]=useState<'idle'|'loading'|'error'|'done'>('idle');
   const [error,setError]=useState<string|null>(null);
@@ -99,13 +101,13 @@ export default function App() {
       {reports.length>0&&<div className="report-selector"><label htmlFor="active-report">Active research</label><select id="active-report" value={active?.id??''} onChange={e=>{setSelected(e.target.value);setDrawer(null);}}>{!active&&<option value="">Choose a report</option>}{reports.map(r=><option key={r.id} value={r.id}>{r.result.mode==='offline_sample'?'[Demo] ':''}{r.title} · {new Date(r.result.analyzed_at).toLocaleString()}</option>)}</select></div>}
       {!result?<EmptyResearch/>:<div className="report-content space-y-6" key={active!.id}>
         {result.mode==='offline_sample'&&<div className="notice warning" role="note"><FlaskConical size={20}/><div><strong>Demo data — not a live result</strong><p>{result.disclaimer}</p></div></div>}
-        {page==='reports'&&<><div className="report-actions"><button className="secondary-button" onClick={()=>downloadReport(active!)}><FileDown size={17}/> Export JSON</button><button className="secondary-button" onClick={()=>window.print()}><Printer size={17}/> Print / save PDF</button><a className="secondary-button" href="/dashboard/graph">Explore evidence graph</a></div><Overview result={result}/><section className="panel"><h2>Evidence-backed passages</h2><p className="section-description">Extractive highlights, not generated answers. Quotations match the collected text; that does not establish their truth.</p>{result.coverage.filter(c=>c.evidence.length).map(c=><article className="evidence-highlight" key={c.question_id}><h3>{c.question}</h3>{c.evidence.slice(0,2).map((e,i)=><blockquote key={i}><button className="source-chip" onClick={()=>{const s=result.sources.find(s=>s.id===e.source_id);if(s)openSource(s,c.question_id);}}>{e.source_id}</button> “{e.quote}”</blockquote>)}</article>)}</section></>}
-        {(page==='gaps'||page==='reports')&&<><CoverageMatrix result={result} onOpenSource={openSource}/><GapList result={result} onOpenSource={openSource}/></>}
-        {(page==='conflicts'||page==='reports')&&<ConflictExplorer result={result} onOpenSource={openSource}/>}
+        {page==='reports'&&<><div className="report-actions"><button className="secondary-button" onClick={()=>downloadReport(active!)}><FileDown size={17}/> Export JSON</button><button className="secondary-button" onClick={()=>window.print()}><Printer size={17}/> Print / save PDF</button><a className="secondary-button" href="/dashboard/graph">Explore evidence graph</a></div><div className="mode-switch" role="group" aria-label="Report view"><button aria-pressed={view==='simple'} onClick={()=>setView('simple')}>Simple view</button><button aria-pressed={view==='research'} onClick={()=>setView('research')}>Research view</button></div><p className="section-description mb-5">{view==='simple'?'Plain language, same evidence and same counts as Research view.':'Full evidence, coverage matrix, graph, and checklist.'}</p>{view==='simple'?<SimpleView result={result}/>:<><Overview result={result}/><section className="panel"><h2>Evidence-backed passages</h2><p className="section-description">Extractive highlights, not generated answers. Quotations match the collected text; that does not establish their truth.</p>{result.coverage.filter(c=>c.evidence.length).map(c=><article className="evidence-highlight" key={c.question_id}><h3>{c.question}</h3>{c.evidence.slice(0,2).map((e,i)=><blockquote key={i}><button className="source-chip" onClick={()=>{const s=result.sources.find(s=>s.id===e.source_id);if(s)openSource(s,c.question_id);}}>{e.source_id}</button> “{e.quote}”</blockquote>)}</article>)}</section></>}</>}
+        {(page==='gaps'||(page==='reports'&&view==='research'))&&<><CoverageMatrix result={result} onOpenSource={openSource}/><GapList result={result} onOpenSource={openSource}/></>}
+        {(page==='conflicts'||(page==='reports'&&view==='research'))&&<ConflictExplorer result={result} onOpenSource={openSource}/>}
         {page==='graph'&&<EvidenceGraph result={result} onOpenSource={openSource}/>}
-        {(page==='freshness'||page==='reports')&&<Warnings result={result} onOpenSource={openSource}/>}
-        {(page==='checklist'||page==='reports')&&checklist}
-        {(page==='sources'||page==='reports')&&<SourceLibrary result={result} onOpenSource={openSource}/>}
+        {(page==='freshness'||(page==='reports'&&view==='research'))&&<Warnings result={result} onOpenSource={openSource}/>}
+        {(page==='checklist'||(page==='reports'&&view==='research'))&&checklist}
+        {(page==='sources'||(page==='reports'&&view==='research'))&&<SourceLibrary result={result} onOpenSource={openSource}/>}
         <p className="report-disclaimer">{result.disclaimer} A matched quote validates provenance, not accuracy. Sources may share an origin; multiple matches do not establish independent corroboration.</p>
       </div>}
     </>}
