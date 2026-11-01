@@ -161,6 +161,22 @@ def test_groq_expansion_mapping_is_used(monkeypatch):
     assert result.coverage[0].status == "covered"
 
 
+def test_different_year_amounts_are_flagged_as_possible_conflict():
+    # The engine does NOT suppress conflicts across different years:
+    # a 2024 amount and a 2026 amount for the same question are
+    # flagged as a possible conflict, and the UI caveat tells the
+    # user to check each quote's year/scope before treating it as a
+    # contradiction. Suppressing it would hide a real difference.
+    sources = [
+        _src("S1", "In 2024 the scholarship amount was 10000 per year."),
+        _src("S2", "In 2026 the scholarship amount is 12000 per year."),
+    ]
+    result = _run(["What is the scholarship amount?"], sources)
+    assert len(result.conflicts) == 1
+    assert result.conflicts[0].label == "possible conflict"
+    assert {v.source_id for v in result.conflicts[0].values} == {"S1", "S2"}
+
+
 def test_stance_conflict_with_verified_quotes():
     sources = [
         _src("S1", "Students are eligible for the scholarship when income is below the limit."),
