@@ -183,6 +183,8 @@ export interface SourceRecord {
 export interface EvidenceQuote {
   source_id: string;
   quote: string;
+  text_offset?: number | null;
+  page?: number | null;
 }
 
 export interface QuestionCoverage {
@@ -192,7 +194,65 @@ export interface QuestionCoverage {
   status: CoverageStatus;
   supporting_source_ids: string[];
   evidence: EvidenceQuote[];
+  entailment?: string | null;
+  semantic_score?: number | null;
 }
+
+export interface SuggestedQuestion {
+  question_id: string;
+  question: string;
+  category: string;
+  priority: "high" | "medium" | "low";
+  origin: "suggested";
+  reason: string;
+  coverage_status: CoverageStatus;
+}
+
+export interface StructuredClaim {
+  subject: string;
+  predicate: string;
+  value: string | null;
+  unit: string | null;
+  period: string | null;
+  conditions: string[];
+  scope: string[];
+  negated: boolean;
+  source_id: string;
+  quote: string;
+}
+
+export interface ContextualConflict {
+  question_id: string;
+  question: string;
+  classification:
+    | "direct_contradiction"
+    | "temporal_difference"
+    | "conditional_difference"
+    | "scope_difference"
+    | "partial_disagreement"
+    | "insufficient_context";
+  explanation: string;
+  claim_a: StructuredClaim;
+  claim_b: StructuredClaim;
+}
+
+export const ENTAILMENT_LABELS: Record<string, string> = {
+  supports: "Strong evidence — the passage answers the question",
+  partially_supports: "Partial evidence — the passage answers part of the question",
+  negated_answer: "Evidence answers with a restriction or 'no' — read the quote, don't assume a yes",
+  related_but_insufficient: "Related but insufficient — the passage is on topic but does not answer the question",
+  contradicted_by_other_evidence: "Contradicted by other evidence — sources disagree on this question",
+  no_supporting_evidence: "No supporting evidence found",
+};
+
+export const CONTEXTUAL_LABELS: Record<ContextualConflict["classification"], string> = {
+  direct_contradiction: "Direct conflict — same scope, different answer",
+  temporal_difference: "Different periods — may be a change over time",
+  conditional_difference: "Different conditions — may apply to different groups",
+  scope_difference: "Different scope — may apply to different places or institutions",
+  partial_disagreement: "Partial disagreement — some elements agree, some differ",
+  insufficient_context: "Needs verification — period, group, or scope is unclear",
+};
 
 export interface PossibleConflict {
   question_id: string;
@@ -246,4 +306,8 @@ export interface AnalysisResponse {
   analysis_method: string;
   notes: string[];
   analyzed_at: string;
+  semantic_analysis?: { enabled: boolean; method: string; model: string | null };
+  suggested_questions?: SuggestedQuestion[];
+  contextual_conflicts?: ContextualConflict[];
+  analysis_limitations?: string[];
 }

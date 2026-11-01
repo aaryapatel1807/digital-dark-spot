@@ -1,6 +1,6 @@
 import { Scale } from "lucide-react";
 import type { AnalysisResponse, SourceRecord } from "../lib/types";
-import { CONFLICT_LABELS } from "../lib/types";
+import { CONFLICT_LABELS, CONTEXTUAL_LABELS } from "../lib/types";
 
 export function ConflictExplorer({
   result,
@@ -18,9 +18,8 @@ export function ConflictExplorer({
       </h2>
       <p className="mt-1 text-sm text-inksoft">
         Where sources disagree, both sides are shown verbatim. GapLens never picks a winner — verify against the
-        official source. Note: the engine does not compare applicable years, so two statements from different
-        cycles can appear here as a possible difference; check each quote's date before treating it as a
-        contradiction.
+        official source. Each conflict is classified by period, conditions, and scope: a different-year difference
+        is not automatically a direct contradiction, and an unclear case is labelled as needing verification.
       </p>
 
       {result.conflicts.length === 0 ? (
@@ -45,6 +44,17 @@ export function ConflictExplorer({
                   {conflict.classification_note ? ` — ${conflict.classification_note}` : ""}
                 </p>
               )}
+              {(result.contextual_conflicts ?? [])
+                .filter((c) => c.question_id === conflict.question_id)
+                .map((c) => (
+                  <p key={c.classification} className="mt-2 text-sm">
+                    <strong>{CONTEXTUAL_LABELS[c.classification]}.</strong> {c.explanation}
+                    {c.claim_a.period || c.claim_b.period ? ` Periods: ${c.claim_a.period ?? "unknown"} vs ${c.claim_b.period ?? "unknown"}.` : ""}
+                    {c.claim_a.conditions.length > 0 || c.claim_b.conditions.length > 0
+                      ? ` Conditions: ${c.claim_a.conditions.join(", ") || "none"} vs ${c.claim_b.conditions.join(", ") || "none"}.`
+                      : ""}
+                  </p>
+                ))}
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {conflict.values.map((value) => {
                   const source = sourceById.get(value.source_id);

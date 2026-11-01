@@ -28,6 +28,7 @@ audit them in one place.
 
 from __future__ import annotations
 
+import math
 import re
 from decimal import Decimal
 from dataclasses import dataclass
@@ -38,12 +39,15 @@ from .analysis_schemas import (
     ActionItem,
     AnalysisMode,
     AnalysisResponse,
+    ContextualConflict,
     EvidenceQuote,
     FreshnessWarning,
     GapItem,
     PossibleConflict,
     QuestionCoverage,
     SourceRecord,
+    StructuredClaim,
+    SuggestedQuestion,
 )
 from .collector import CollectedSource
 from .config import get_settings
@@ -555,6 +559,8 @@ def _validate(
         coverage.append(QuestionCoverage(
             question_id=item.question_id, question=item.question, origin=item.origin,
             status=status, supporting_source_ids=supporting, evidence=evidence,
+            entailment=item.entailment if evidence else "no_supporting_evidence",
+            semantic_score=item.semantic_score,
         ))
     conflicts: list[PossibleConflict] = []
     for conflict in response.conflicts:
@@ -664,6 +670,231 @@ def _rebuild_findings(response: AnalysisResponse) -> AnalysisResponse:
     return response.model_copy(update={"gaps": gaps, "actions": actions, "summary": summary})
 
 
+# --- GapLens 3.0 intelligence (Phases 3–5) ---
+# Honest scope, stated in code: there is NO neural embedding model
+# here. "Hybrid" = deterministic overlap + concept-cluster expansion
+# + TF-IDF cosine over the same expanded tokens. A sentence
+# transformer was evaluated and rejected for this deployment: the
+# free container has 512 MB RAM, the model download (~80 MB) plus
+# runtime would risk OOM and cold-start timeouts, and no paid
+# embedding API is allowed. The provider interface is left open:
+# if EMBEDDING_MODEL is ever configured in future, semantic_score
+# must be re-labelled as that model's similarity, never as a
+# probability of truth. TF-IDF scores are retrieval scores only.
+
+
+def _expanded_token_set(tokens: set[str]) -> set[str]:
+    out = set(tokens)
+    for token in tokens:
+        out.update(_SYNONYMS.get(token, set()))
+    return out
+
+
+def _tfidf_score(q_tokens: set[str], s_tokens: set[str], idf: dict[str, float]) -> float:
+    """Cosine similarity between concept-expanded question and
+    sentence token sets, weighted by IDF from this run's corpus.
+    Returns 0.0 when either side is empty. This identifies
+    CANDIDATES; it never, by itself, marks a question covered."""
+    q = _expanded_token_set(q_tokens)
+    s = _expanded_token_set(s_tokens)
+    if not q or not s:
+        return 0.0
+    shared = q & s
+    if not shared:
+        return 0.0
+    num = sum(idf.get(t, 1.0) ** 2 for t in shared)
+    den_q = math.sqrt(sum(idf.get(t, 1.0) ** 2 for t in q))
+    den_s = math.sqrt(sum(idf.get(t, 1.0) ** 2 for t in s))
+    if den_q == 0 or den_s == 0:
+        return 0.0
+    return num / (den_q * den_s)
+
+
+def _passage_negates(sentence: str, question_tokens: set[str]) -> bool:
+    """True when a deny cue sits within 3 stemmed words before a
+    question term in the passage — e.g. 'not eligible'. Conservative:
+    a negated passage ANSWERS the question (with a 'no'), it does
+    not affirm the claim."""
+    deny_stems = {_stem(cue) for cue in _DENY_CUES}
+    words = [_stem(w) for w in re.findall(r"[a-z']+", sentence.lower())]
+    for i, word in enumerate(words):
+        if word in question_tokens:
+            window = words[max(0, i - 3):i]
+            if any(cue in window for cue in deny_stems):
+                return True
+    return False
+
+
+_RESTRICTING_PHRASES = [
+    "economically disadvantaged", "disadvantaged", "low-income", "low income",
+    "income below", "below", "only", "category", "households",
+]
+
+
+def _scope_narrowed(raw_question: str, sentence: str) -> bool:
+    """Universal question + restricted evidence = not full support.
+    'Available to all students?' answered by evidence about one
+    disadvantaged group is related, not proof for everyone."""
+    question = raw_question.lower()
+    if not re.search(r"\ball\b|\bevery\b", question):
+        return False
+    text = sentence.lower()
+    return any(phrase in text for phrase in _RESTRICTING_PHRASES)
+
+
+def _entailment(status: str, semantic: float, negated: bool, has_conflict: bool) -> str:
+    if has_conflict:
+        return "contradicted_by_other_evidence"
+    if negated and status in ("covered", "partial"):
+        return "negated_answer"
+    if status == "covered":
+        return "supports"
+    if status == "partial":
+        return "partially_supports"
+    if semantic >= 0.35:
+        return "related_but_insufficient"
+    return "no_supporting_evidence"
+
+
+# Domain taxonomy for missing-question discovery (Phase 4).
+# Questions are SUGGESTIONS, not gaps: each is re-checked against
+# the run's evidence before it is shown, and the user accepts or
+# dismisses it. No question here asserts a fact about any scheme.
+_TAXONOMY: dict[str, list[tuple[str, str, str, str, str]]] = {
+    "scholarship": [
+        ("renewal_policy", "What are the renewal conditions?", "scholarship", "high", "Renewal conditions can affect continued eligibility."),
+        ("selection_criteria", "How are recipients selected?", "scholarship", "high", "Selection criteria decide who actually receives it."),
+        ("income_restrictions", "Are there income or category restrictions?", "scholarship", "high", "Income or category limits can disqualify an otherwise eligible applicant."),
+        ("academic_requirements", "What academic performance is required, and must it be maintained?", "scholarship", "medium", "Marks or CGPA requirements may apply at entry and at renewal."),
+        ("amount_and_duration", "What is the scholarship amount and for how long is it paid?", "scholarship", "high", "Amount and duration change the value of the award."),
+        ("application_procedure", "What is the exact application procedure?", "scholarship", "medium", "A missed step or portal can invalidate an application."),
+        ("official_verification", "Where is the official notice or portal to verify this?", "scholarship", "high", "Unofficial summaries can be outdated or wrong."),
+    ],
+    "admission": [
+        ("admission_criteria", "What are the admission criteria and cutoffs?", "admission", "high", "Cutoffs and criteria decide eligibility."),
+        ("admission_dates", "What are the key admission dates and deadlines?", "admission", "high", "Missing a date can close the opportunity."),
+        ("admission_documents", "Which documents are required for admission?", "admission", "medium", "Missing documents delay or block admission."),
+        ("admission_fees", "What are the fees and are scholarships or waivers available?", "admission", "medium", "Cost affects whether the option is feasible."),
+        ("official_verification", "Where is the official admission notice to verify this?", "admission", "high", "Unofficial summaries can be outdated or wrong."),
+    ],
+    "scheme": [
+        ("scheme_benefits", "What benefits does this scheme provide?", "scheme", "high", "Benefits define what the scheme is actually worth."),
+        ("scheme_eligibility", "Who exactly is eligible under this scheme?", "scheme", "high", "Eligibility rules decide who can apply."),
+        ("scheme_procedure", "How does one apply under this scheme?", "scheme", "medium", "Procedure and portals matter for a successful application."),
+        ("scheme_status", "Is this scheme currently active, and for which period?", "scheme", "high", "Schemes change or lapse between cycles."),
+        ("official_verification", "Where is the official scheme notice to verify this?", "scheme", "high", "Unofficial summaries can be outdated or wrong."),
+    ],
+    "job": [
+        ("job_role", "What exactly does this role involve?", "job", "medium", "Role details decide whether the job fits."),
+        ("job_eligibility", "What qualifications or experience are required?", "job", "high", "Requirements decide whether to apply."),
+        ("job_compensation", "What is the compensation, location, and work mode?", "job", "medium", "Pay, place, and mode change the decision."),
+        ("job_verification", "How can the employer and offer be verified as genuine?", "job", "high", "Fake job offers are a real risk."),
+    ],
+    "general": [
+        ("official_verification", "Where is the official source to verify this?", "general", "high", "Unofficial summaries can be outdated or wrong."),
+        ("key_dates", "What are the key dates or deadlines?", "general", "medium", "Dates decide whether an opportunity is still open."),
+        ("costs_and_requirements", "What does it cost, and what is required?", "general", "medium", "Cost and requirements affect feasibility."),
+    ],
+}
+
+
+def _domain_for_goal(goal: str) -> str:
+    text = goal.lower()
+    if any(w in text for w in ("scholarship", "fellowship", "grant")):
+        return "scholarship"
+    if any(w in text for w in ("admission", "college", "university", "course")):
+        return "admission"
+    if any(w in text for w in ("scheme", "yojana", "government", "subsidy")):
+        return "scheme"
+    if any(w in text for w in ("job", "career", "vacancy", "recruitment", "offer")):
+        return "job"
+    return "general"
+
+
+def _suggest_questions(
+    goal: str,
+    existing_questions: list[str],
+    collected,
+    sentences_cache: dict,
+    tokens_cache: dict,
+    expanded: dict[str, set[str]],
+) -> list[SuggestedQuestion]:
+    domain = _domain_for_goal(goal)
+    existing_tokens = [_tokens(q) for q in existing_questions]
+    suggestions: list[SuggestedQuestion] = []
+    for qid, question, category, priority, reason in _TAXONOMY[domain]:
+        q_tokens = _tokens(question)
+        # Deduplicate: token Jaccard >= 0.5 against any existing
+        # question means the user already asked it (in other words).
+        duplicate = False
+        for existing in existing_tokens:
+            union = q_tokens | existing
+            if union and len(q_tokens & existing) / len(union) >= 0.5:
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        passages = _best_passages(q_tokens, collected, sentences_cache, tokens_cache, expanded)
+        best = passages[0] if passages else None
+        if best is not None and best.score >= COVERED_THRESHOLD:
+            coverage_status = "covered"
+        elif best is not None and best.score >= PARTIAL_THRESHOLD and best.matched >= PARTIAL_MIN_MATCHED:
+            coverage_status = "partial"
+        else:
+            coverage_status = "not_found"
+        suggestions.append(SuggestedQuestion(
+            question_id=qid, question=question, category=category,
+            priority=priority, reason=reason, coverage_status=coverage_status,
+        ))
+    order = {"high": 0, "medium": 1, "low": 2}
+    suggestions.sort(key=lambda s: (order[s.priority], s.question))
+    return suggestions[:6]
+
+
+def _structured_claim(question: str, value: EvidenceQuote) -> StructuredClaim:
+    numbers = _numbers(value.quote)
+    years = sorted(set(_YEAR_RE.findall(value.quote.lower())))
+    conditions = [p for p in _CONDITION_PHRASES if p in value.quote.lower()]
+    scope = [s for s in _STATE_NAMES if s in value.quote.lower()]
+    first_value = numbers[0][1] if numbers else None
+    unit = numbers[0][0] if numbers else None
+    negated = _passage_negates(value.quote, _tokens(question))
+    return StructuredClaim(
+        subject=question, value=first_value, unit=unit,
+        period=years[0] if years else None, conditions=conditions,
+        scope=scope, negated=negated, source_id=value.source_id, quote=value.quote,
+    )
+
+
+def _contextual_conflicts(conflicts: list[PossibleConflict], question_text: dict[str, str]) -> list[ContextualConflict]:
+    mapping = {
+        "same_period": "direct_contradiction",
+        "different_period": "temporal_difference",
+        "different_conditions": "conditional_difference",
+        "different_scope": "scope_difference",
+        "uncertain": "insufficient_context",
+    }
+    out: list[ContextualConflict] = []
+    for conflict in conflicts:
+        question = question_text.get(conflict.question_id, conflict.question)
+        claim_a = _structured_claim(question, conflict.values[0])
+        claim_b = _structured_claim(question, conflict.values[1])
+        classification = mapping.get(conflict.classification, "insufficient_context")
+        # Partial disagreement: the quotes share at least one numeric
+        # value AND differ on another — some elements agree, some do not.
+        nums_a = {v for _, v in _numbers(claim_a.quote)}
+        nums_b = {v for _, v in _numbers(claim_b.quote)}
+        if nums_a and nums_b and (nums_a & nums_b) and (nums_a ^ nums_b):
+            classification = "partial_disagreement"
+        out.append(ContextualConflict(
+            question_id=conflict.question_id, question=question,
+            classification=classification,
+            explanation=conflict.classification_note or conflict.detail,
+            claim_a=claim_a, claim_b=claim_b,
+        ))
+    return out
+
+
 def analyze(
     goal: str,
     user_questions: list[str] | None,
@@ -713,6 +944,9 @@ def analyze(
     gaps: list[GapItem] = []
     sentences_cache: dict[str, list[str]] = {}
     tokens_cache: dict[str, set[str]] = {}
+    # IDF corpus for TF-IDF: all accessible sentences, computed
+    # lazily after the first _best_passages call populates the cache.
+    idf: dict[str, float] = {}
     for question_id, question, origin in questions:
         tokens = _tokens(question)
         passages = _best_passages(tokens, collected, sentences_cache, tokens_cache, expanded_for_score)
@@ -724,7 +958,18 @@ def analyze(
         else:
             status = "not_found"
         supporting = [p.source_id for p in passages]
-        evidence = [EvidenceQuote(source_id=p.source_id, quote=p.sentence) for p in passages]
+        evidence = []
+        for p in passages:
+            full = texts.get(p.source_id, "")
+            offset = full.find(p.sentence) if full else -1
+            page = None
+            if offset >= 0:
+                for match in re.finditer(r"\[Page (\d+)\]", full[:offset]):
+                    page = int(match.group(1))
+            evidence.append(EvidenceQuote(
+                source_id=p.source_id, quote=p.sentence,
+                text_offset=offset if offset >= 0 else None, page=page,
+            ))
         coverage.append(QuestionCoverage(
             question_id=question_id, question=question, origin=origin,
             status=status, supporting_source_ids=supporting, evidence=evidence,
@@ -733,6 +978,36 @@ def analyze(
             question_id, question, tokens, passages)
         if conflict is not None:
             conflicts.append(conflict)
+    # Hybrid semantic scores + entailment, computed after all
+    # passages are known so IDF covers the whole run's corpus.
+    all_sentences: list[set[str]] = []
+    for sentences in sentences_cache.values():
+        for sentence in sentences:
+            all_sentences.append(_tokens(sentence))
+    total_docs = max(1, len(all_sentences))
+    vocab: set[str] = set()
+    for tokens_set in all_sentences:
+        vocab.update(_expanded_token_set(tokens_set))
+    for term in vocab:
+        df = sum(1 for tokens_set in all_sentences if term in _expanded_token_set(tokens_set))
+        idf[term] = math.log((total_docs + 1) / (df + 1)) + 1.0
+    conflict_qids = {c.question_id for c in conflicts}
+    for row in coverage:
+        q_tokens = _tokens(row.question)
+        best_sentence = row.evidence[0].quote if row.evidence else ""
+        semantic = _tfidf_score(q_tokens, _tokens(best_sentence), idf) if best_sentence else 0.0
+        negated = _passage_negates(best_sentence, q_tokens) if best_sentence else False
+        row.semantic_score = round(semantic, 3)
+        row.entailment = _entailment(row.status, semantic, negated, row.question_id in conflict_qids)
+        # Scope narrowing: a universal question answered only for a
+        # restricted group is partial support at best, never covered.
+        if best_sentence and _scope_narrowed(row.question, best_sentence) and row.status == "covered":
+            row.status = "partial"
+            row.entailment = "related_but_insufficient"
+    suggested = _suggest_questions(
+        goal, [q for _, q, _ in questions], collected, sentences_cache, tokens_cache, expanded_for_score,
+    )
+    contextual = _contextual_conflicts(conflicts, {qid: q for qid, q, _ in questions})
     freshness_warnings: list[FreshnessWarning] = []
     for item in accessible:
         record = item.record
@@ -768,6 +1043,13 @@ def analyze(
         analysis_method=method,
         notes=notes,
         analyzed_at=datetime.now(timezone.utc),
+        suggested_questions=suggested,
+        contextual_conflicts=contextual,
+        analysis_limitations=[
+            "Semantic matching is concept-expanded TF-IDF retrieval, not neural embeddings; paraphrases with no shared concept may still miss.",
+            "Suggested questions are suggestions, not established gaps, until checked against evidence and accepted by the user.",
+            "A high retrieval score does not prove a claim is true; coverage means the question is answered in the sources, not that the answer is correct.",
+        ],
     )
     cleaned, validation_notes = _validate(response, texts)
     if validation_notes:

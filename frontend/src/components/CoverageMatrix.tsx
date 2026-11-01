@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import type { AnalysisResponse, CoverageStatus, SourceRecord } from "../lib/types";
+import { ENTAILMENT_LABELS } from "../lib/types";
 
 const STATUS_PILL: Record<CoverageStatus, string> = {
   covered: "bg-sourced/10 text-sourced border-sourced/30",
@@ -117,6 +118,12 @@ export function CoverageMatrix({
                           <span className={`ml-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_PILL[row.status]}`}>
                             {STATUS_LABEL[row.status]}
                           </span>
+                          {row.entailment && (
+                            <span className="mt-1 block text-xs text-inksoft">
+                              {ENTAILMENT_LABELS[row.entailment] ?? row.entailment}
+                              {row.semantic_score != null ? ` · Retrieval score ${row.semantic_score} (TF-IDF, not a truth probability)` : ""}
+                            </span>
+                          )}
                         </span>
                       </button>
                       {expanded ? (
@@ -135,6 +142,8 @@ export function CoverageMatrix({
                                     {source?.title ? ` · ${source.title}` : ""}
                                   </button>
                                   <span className="block mt-1 text-ink/80">“{quote.quote}”</span>
+                                  {quote.page != null && <span className="block text-xs text-inksoft">PDF page {quote.page}</span>}
+                                  {quote.text_offset != null && <span className="block text-xs text-inksoft">Source offset {quote.text_offset}</span>}
                                 </blockquote>
                               );
                             })}

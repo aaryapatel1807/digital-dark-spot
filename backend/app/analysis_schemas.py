@@ -103,6 +103,12 @@ class SourceRecord(BaseModel):
 class EvidenceQuote(BaseModel):
     source_id: str
     quote: str = Field(max_length=500)
+    # Provenance (GapLens 3.0, Phase 6): character offset of the quote
+    # in the collected source text, and PDF page when a [Page N]
+    # marker precedes it. Both are None when they cannot be computed
+    # — never fabricated.
+    text_offset: int | None = None
+    page: int | None = None
 
 
 class QuestionCoverage(BaseModel):
@@ -112,6 +118,14 @@ class QuestionCoverage(BaseModel):
     status: CoverageStatus
     supporting_source_ids: list[str] = Field(default_factory=list)
     evidence: list[EvidenceQuote] = Field(default_factory=list)
+    # GapLens 3.0 entailment + hybrid retrieval (optional, additive):
+    # entailment is what the best passage DOES, not a truth verdict:
+    # supports / partially_supports / negated_answer / related_but_insufficient /
+    # contradicted_by_other_evidence / no_supporting_evidence.
+    # semantic_score is a TF-IDF cosine retrieval score (0–1), NOT a
+    # probability of truth and NOT an embedding similarity.
+    entailment: str | None = None
+    semantic_score: float | None = None
 
 
 class PossibleConflict(BaseModel):
@@ -156,6 +170,47 @@ class ActionItem(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
 
 
+class SuggestedQuestion(BaseModel):
+    question_id: str
+    question: str
+    category: str
+    priority: Priority = "medium"
+    origin: Literal["suggested"] = "suggested"
+    reason: str
+    coverage_status: CoverageStatus = "not_found"
+
+
+class StructuredClaim(BaseModel):
+    subject: str
+    predicate: str = "value"
+    value: str | None = None
+    unit: str | None = None
+    period: str | None = None
+    conditions: list[str] = Field(default_factory=list)
+    scope: list[str] = Field(default_factory=list)
+    negated: bool = False
+    source_id: str
+    quote: str
+
+
+class ContextualConflict(BaseModel):
+    question_id: str
+    question: str
+    classification: Literal[
+        "direct_contradiction", "temporal_difference", "conditional_difference",
+        "scope_difference", "partial_disagreement", "insufficient_context",
+    ]
+    explanation: str
+    claim_a: StructuredClaim
+    claim_b: StructuredClaim
+
+
+class SemanticAnalysis(BaseModel):
+    enabled: bool = True
+    method: str = "hybrid_concept_tfidf"
+    model: str | None = None
+
+
 class AnalysisResponse(BaseModel):
     mode: AnalysisMode
     goal: str
@@ -174,3 +229,8 @@ class AnalysisResponse(BaseModel):
     analysis_method: str
     notes: list[str] = Field(default_factory=list)
     analyzed_at: datetime
+    # GapLens 3.0, all optional and additive: old frontends ignore them.
+    semantic_analysis: SemanticAnalysis = SemanticAnalysis()
+    suggested_questions: list[SuggestedQuestion] = Field(default_factory=list)
+    contextual_conflicts: list[ContextualConflict] = Field(default_factory=list)
+    analysis_limitations: list[str] = Field(default_factory=list)
