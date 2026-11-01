@@ -21,6 +21,9 @@ export function SourceDiscovery({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [cached, setCached] = useState(false);
+  const [retrievedAt, setRetrievedAt] = useState<string | null>(null);
+  const [added, setAdded] = useState(0);
 
   const discover = async () => {
     setError(null);
@@ -28,6 +31,8 @@ export function SourceDiscovery({
     try {
       const response = await api.discover(query.trim() || goal.trim());
       setResults(response.results);
+      setCached(!!response.cached);
+      setRetrievedAt(response.retrieved_at ?? null);
       setSelected(new Set());
       setSearched(true);
     } catch (e) {
@@ -40,10 +45,10 @@ export function SourceDiscovery({
   if (!searchConfigured) {
     return (
       <section className="rounded-2xl border border-line bg-card p-5 shadow-card">
-        <h2 className="font-display text-xl">Discover sources</h2>
+        <h2 className="font-display text-xl">Find Sources Automatically</h2>
         <p className="mt-1 text-sm text-inksoft">
-          Source discovery is not configured on this backend (no search provider key set). Add your own links or
-          pasted text below instead — GapLens never invents search results.
+          Automatic source discovery is currently unavailable. You can still add website links, paste information,
+          or upload documents.
         </p>
       </section>
     );
@@ -51,10 +56,11 @@ export function SourceDiscovery({
 
   return (
     <section className="rounded-2xl border border-line bg-card p-5 shadow-card">
-      <h2 className="font-display text-xl">Discover sources</h2>
+      <h2 className="font-display text-xl">Find Sources Automatically</h2>
       <p className="mt-1 text-sm text-inksoft">
-        Search results are suggestions only. Select the ones that look relevant, then add them — only then are
-        they fetched and analyzed like any other source.
+        Discover relevant websites using an available search provider. Results are <strong>suggested sources</strong> only —
+        a search snippet is not verified evidence. Select the ones that look relevant, then add them; only then are
+        they fetched (as <strong>successfully fetched</strong> or <strong>failed</strong> sources) and analyzed.
       </p>
       <div className="mt-3 flex gap-2">
         <input
@@ -81,6 +87,12 @@ export function SourceDiscovery({
       {searched && results.length === 0 && !error && (
         <p className="mt-3 text-sm text-inksoft">No results returned for this search. Try different words.</p>
       )}
+      {searched && results.length > 0 && cached && (
+        <p className="mt-3 text-sm text-inksoft">
+          Cached results — retrieved {retrievedAt ? new Date(retrievedAt).toLocaleString() : "earlier"}, not a fresh
+          search. No provider quota was used for this search.
+        </p>
+      )}
       {results.length > 0 && (
         <>
           <ul className="mt-3 space-y-2">
@@ -99,10 +111,12 @@ export function SourceDiscovery({
                   className="mt-1"
                 />
                 <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-inksoft">Suggested source</p>
                   <a href={r.link} target="_blank" rel="noreferrer" className="text-sm font-semibold text-indigoaccent hover:underline">
                     {r.title}
                   </a>
-                  <p className="text-xs text-inksoft">{r.link}</p>
+                  <p className="text-xs text-inksoft">{r.domain ?? r.link}</p>
+                  <p className="text-xs text-inksoft break-all">{r.link}</p>
                   {r.snippet && <p className="mt-1 text-sm">{r.snippet}</p>}
                 </div>
               </li>
@@ -111,11 +125,17 @@ export function SourceDiscovery({
           <button
             type="button"
             disabled={selected.size === 0}
-            onClick={() => onAdd([...selected])}
+            onClick={() => { onAdd([...selected]); setAdded(selected.size); setSelected(new Set()); }}
             className="mt-3 rounded-xl bg-indigoaccent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
-            Add {selected.size} selected {selected.size === 1 ? "source" : "sources"} to analyze
+            Add {selected.size} selected {selected.size === 1 ? "source" : "sources"} to investigation
           </button>
+          {added > 0 && (
+            <p className="mt-2 text-sm text-inksoft">
+              Added {added} {added === 1 ? "source" : "sources"} — they now appear below in Step 3 as website links to
+              fetch. A selected source only becomes analyzed evidence after a successful fetch.
+            </p>
+          )}
         </>
       )}
     </section>

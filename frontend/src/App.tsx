@@ -51,8 +51,9 @@ export default function App() {
   const openSource=(source:SourceRecord,focusQuestionId?:string)=>setDrawer({source,focusQuestionId});
   const [health,setHealth]=useState<HealthResponse|null>(null);
   const [healthError,setHealthError]=useState<string|null>(null);
+  const [discoveryAvailable,setDiscoveryAvailable]=useState<boolean|null>(null);
   const [resetConfirm,setResetConfirm]=useState(false);
-  const checkHealth=useCallback(()=>{setHealthError(null);api.health().then(setHealth).catch((e:unknown)=>{setHealth(null);setHealthError(e instanceof Error?e.message:'Backend unreachable.');});},[]);
+  const checkHealth=useCallback(()=>{setHealthError(null);api.health().then(setHealth).catch((e:unknown)=>{setHealth(null);setHealthError(e instanceof Error?e.message:'Backend unreachable.');});api.capabilities().then(c=>{if(c)setDiscoveryAvailable(c.discovery_available);});},[]);
   useEffect(checkHealth,[checkHealth]);
   const running=useRef(false);
   const runAnalysis=async(payload:AnalyzeRequest)=>{
@@ -95,7 +96,7 @@ export default function App() {
     {page==='new-research'&&<>
       <div className="mode-switch" role="group" aria-label="Analysis mode"><button disabled={phase==='loading'} aria-pressed={mode==='live'} onClick={()=>{setMode('live');setFormError(null);}}>Live sources</button><button disabled={phase==='loading'} aria-pressed={mode==='demo'} onClick={()=>{setMode('demo');setFormError(null);}}><FlaskConical size={16}/> Demo sample</button></div>
       <p className="section-description mb-5">{mode==='demo'?'Bundled fictional scholarship sources. No pages are fetched.':'Free deterministic source analysis. Optional AI suggests questions only; your source text is not sent to the AI provider.'}</p>
-      {mode==='live'&&<div className="mb-5 space-y-5"><SourceDiscovery goal={form.goal} searchConfigured={!!health?.search_configured} onAdd={(urls)=>{const existing=form.urls.filter(u=>u.trim());const merged=[...existing,...urls.filter(u=>!existing.includes(u))];setForm({...form,urls:[...merged,'']});}}/><PdfUpload onAdd={(title,text)=>setForm({...form,texts:[...form.texts,{title,text}]})}/></div>}
+      {mode==='live'&&<div className="mb-5 space-y-5"><p className="text-sm text-inksoft">Choose how to collect sources — any combination works, and none of them requires a search provider: <strong>Add Website Links</strong> (Step 3 below), <strong>Upload Documents</strong>, or <strong>Find Sources Automatically</strong> (optional).</p><SourceDiscovery goal={form.goal} searchConfigured={discoveryAvailable ?? !!health?.search_configured} onAdd={(urls)=>{const existing=form.urls.filter(u=>u.trim());const merged=[...existing,...urls.filter(u=>!existing.includes(u))];setForm({...form,urls:[...merged,'']});}}/><PdfUpload onAdd={(title,text)=>setForm({...form,texts:[...form.texts,{title,text}]})}/></div>}
       <ResearchInput mode={mode} form={form} onChange={setForm} onAnalyze={submit} onClear={()=>{setForm(EMPTY_FORM);setFormError(null);setError(null);setPhase('idle');}} analyzing={phase==='loading'} formError={formError}/>
       {phase==='loading'&&<section className="panel mt-5" role="status"><h2><Loader2 size={20} className="animate-spin"/> Reading and comparing your sources…</h2><p className="section-description">Waiting for the complete backend response. No estimated progress is shown.</p><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink/10"><div className="loading-sweep h-full w-2/5 rounded-full bg-indigoaccent"/></div></section>}
       {phase==='error'&&<section className="notice warning mt-5" role="alert"><div><strong>Analysis failed</strong><p>{error}</p><p>Your existing reports and current inputs are preserved.</p></div><button className="secondary-button" onClick={()=>lastPayload&&void runAnalysis(lastPayload)}><RefreshCw size={16}/> Retry</button></section>}

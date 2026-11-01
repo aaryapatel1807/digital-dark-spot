@@ -51,13 +51,29 @@ class DiscoverResult(BaseModel):
     title: str
     link: str
     snippet: str | None = None
+    domain: str | None = None
 
 
 class DiscoverResponse(BaseModel):
     query: str
     provider: str = "serpapi"
     configured: bool = True
+    cached: bool = False
+    retrieved_at: str | None = None
     results: list[DiscoverResult] = Field(default_factory=list)
+
+
+class CapabilitiesResponse(BaseModel):
+    service: str = "GapLens"
+    version: str
+    analysis_available: bool = True
+    pdf_available: bool = True
+    ask_available: bool = True
+    discovery_available: bool = False
+    discovery_enabled: bool = True
+    discovery_provider: str | None = None
+    search_configured: bool = False
+    groq_configured: bool = False
 
 settings = get_settings()
 
@@ -128,18 +144,42 @@ def fetch(payload: FetchRequest, _rate: None = Depends(_limit_fetch)) -> FetchRe
 
 
 @app.post("/api/discover", response_model=DiscoverResponse)
-def discover_endpoint(payload: DiscoverRequest, _rate: None = Depends(_limit_discover)) -> DiscoverResponse:
+def discover_endpoint(payload: DiscoverRequest, request: Request, _rate: None = Depends(_limit_discover)) -> DiscoverResponse:
     from fastapi import HTTPException
+    from urllib.parse import urlparse
 
+    from .search import SearchQuotaExhausted
+
+    ip = request.client.host if request.client else "unknown"
     try:
-        results = discover_sources(payload.query, payload.num)
+        results, cached, retrieved_at = discover_sources(payload.query, payload.num, ip)
     except SearchNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except SearchQuotaExhausted as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except SearchFailed as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return DiscoverResponse(
         query=payload.query,
-        results=[DiscoverResult(**r) for r in results],
+        cached=cached,
+        retrieved_at=retrieved_at,
+        results=[
+            DiscoverResult(domain=urlparse(r["link"]).hostname if r.get("link") else None, **r)
+            for r in results
+        ],
+    )
+
+
+@app.get("/api/capabilities", response_model=CapabilitiesResponse)
+def capabilities_endpoint() -> CapabilitiesResponse:
+    settings = get_settings()
+    return CapabilitiesResponse(
+        version=settings.version,
+        discovery_available=settings.discovery_available,
+        discovery_enabled=settings.discovery_enabled,
+        discovery_provider=settings.search_provider if settings.discovery_available else None,
+        search_configured=settings.search_configured,
+        groq_configured=settings.groq_configured,
     )
 
 

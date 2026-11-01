@@ -16,12 +16,14 @@ has **no fake search and no fake citations**.
 > **GapLens 2.0 (in repo, backend deploy pending SnapDeploy free-deploy
 > window reset — see Deployment):** semantic paraphrase matching
 > (concept clusters + phrase matches + optional Groq term expansion,
-> NOT embeddings), source discovery via SerpApi only when
-> `SERPAPI_KEY` is set server-side (otherwise 503, never invented
+> NOT embeddings), optional SerpApi discovery (provider interface,
+> file-backed daily quotas + cache, 503 without a key, never invented
 > URLs), PDF text extraction (≤5 MB, ≤50 pages, page markers in
 > evidence), deterministic Ask GapLens over report evidence only,
-> and richer evidence-graph detail panes. See
-> `docs/audit-2.0-plan.md` for the audit and honest scope.
+> temporal conflict classification, and richer evidence-graph detail
+> panes. Core research (manual URLs, pasted text, PDF) never needs
+> SerpApi. See `docs/final-stabilization.md` for the verified status
+> matrix, env vars, and exact deployment steps.
 >
 > **Analysis build (v2.0.0).** `POST /api/analyze` takes a research goal, public URLs, and pasted text, and returns
 > a strict Pydantic result — summary, per-question coverage, unanswered questions, possible conflicts with

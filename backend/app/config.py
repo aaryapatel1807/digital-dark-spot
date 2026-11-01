@@ -46,6 +46,28 @@ class Settings:
     search_api_key: str | None = field(
         default_factory=lambda: os.environ.get("SERPAPI_KEY") or None
     )
+    # Provider-independent discovery (final stabilization, Parts 3–4).
+    # SEARCH_PROVIDER: "serpapi" (default) or "none". DISCOVERY_ENABLED
+    # can switch discovery off entirely without removing the key.
+    # Limits are deliberately low free-tier guards, not provider claims.
+    search_provider: str = field(
+        default_factory=lambda: os.environ.get("SEARCH_PROVIDER") or "serpapi"
+    )
+    discovery_enabled: bool = field(
+        default_factory=lambda: os.environ.get("DISCOVERY_ENABLED", "true").lower() not in ("false", "0", "no")
+    )
+    discovery_daily_global_limit: int = field(
+        default_factory=lambda: int(os.environ.get("DISCOVERY_DAILY_GLOBAL_LIMIT", "30"))
+    )
+    discovery_session_limit: int = field(
+        default_factory=lambda: int(os.environ.get("DISCOVERY_SESSION_LIMIT", "3"))
+    )
+    discovery_results_limit: int = field(
+        default_factory=lambda: int(os.environ.get("DISCOVERY_RESULTS_LIMIT", "5"))
+    )
+    discovery_cache_ttl_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("DISCOVERY_CACHE_TTL_SECONDS", "86400"))
+    )
     fetch_timeout_seconds: float = 10.0
     fetch_max_bytes: int = 1_000_000
     # Analysis-layer limits. These bound every /api/analyze run so one
@@ -68,6 +90,10 @@ class Settings:
     @property
     def search_configured(self) -> bool:
         return bool(self.search_api_key)
+
+    @property
+    def discovery_available(self) -> bool:
+        return bool(self.discovery_enabled and self.search_provider.lower() != "none" and self.search_api_key)
 
 
 @lru_cache(maxsize=1)

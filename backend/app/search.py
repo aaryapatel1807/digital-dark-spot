@@ -1,22 +1,38 @@
-"""Source discovery via a configured search provider (GapLens 2.0, Step 3).
+"""Source discovery service (GapLens final stabilization, Parts 2–4).
 
-Rules, stated plainly:
-- No provider key, no discovery: the endpoint returns 503 with a
-  plain message, and the UI says search is not configured. URLs are
-  NEVER invented — every result comes from the provider response.
-- The key lives server-side only (SERPAPI_KEY env, like GROQ_API_KEY)
-  and is never logged, returned, or sent to the frontend.
-- Discovered results are SUGGESTIONS, not analyzed sources. A result
-  becomes an analyzed source only when the user selects it and the
-  existing SSRF-safe fetcher reads it in /api/analyze.
-- Results are filtered to http(s) URLs only; anything else is dropped.
+Flow, in order:
+1. If discovery is disabled or no provider is configured -> 503
+   "not configured" (handled by the endpoint), never invented URLs.
+2. Cache hit (normalized query, configurable TTL) -> return cached
+   results WITHOUT consuming quota or calling the provider, marked
+   cached with their original retrieval timestamp.
+3. Quota check (file-backed daily global + per-IP limits) -> if
+   exceeded, friendly 503, no provider call, user's input preserved
+   by the frontend (it never clears the form on a discovery error).
+4. Provider call (SerpApi today, via the provider interface).
+   Provider quota errors are detected, NOT retried, and surfaced
+   as a structured error; timeouts/failures become 502.
+5. Success -> record quota use + cache the results.
+
+Manual URL, pasted-text, and PDF analysis never touch this module
+and never require SerpApi: they are the core, discovery is optional.
+The key lives server-side only and is never logged or returned.
 """
 
 from __future__ import annotations
 
-import requests
+import threading
+from datetime import datetime, timezone
 
 from .config import get_settings
+from .discovery_quota import (
+    QuotaExceeded,
+    check_and_record,
+    get_cached,
+    normalize_query,
+    set_cached,
+)
+from .search_providers import ProviderError, ProviderQuotaExhausted, SearchProvider, SerpApiProvider
 
 _ENDPOINT = "https://serpapi.com/search.json"
 _TIMEOUT_SECONDS = 15.0
@@ -30,48 +46,68 @@ class SearchFailed(Exception):
     pass
 
 
-def discover_sources(query: str, num: int = 10) -> list[dict[str, str | None]]:
-    """Return provider results as {title, link, snippet} dicts."""
+class SearchQuotaExhausted(Exception):
+    pass
+
+
+_query_locks: dict[str, threading.Lock] = {}
+_query_locks_guard = threading.Lock()
+
+
+def _lock_for(query: str) -> threading.Lock:
+    with _query_locks_guard:
+        return _query_locks.setdefault(query, threading.Lock())
+
+
+def get_provider() -> SearchProvider:
+    """Resolve the configured provider, or raise SearchNotConfigured."""
     settings = get_settings()
-    if not settings.search_api_key:
+    if not settings.discovery_enabled:
         raise SearchNotConfigured(
-            "Source discovery is not configured: set SERPAPI_KEY in the backend environment."
+            "Automatic source discovery is currently unavailable. You can still add website links, paste information, or upload documents."
         )
-    try:
-        response = requests.get(
-            _ENDPOINT,
-            params={
-                "engine": "google",
-                "q": query,
-                "num": max(1, min(num, 10)),
-                "api_key": settings.search_api_key,
-            },
-            timeout=_TIMEOUT_SECONDS,
+    provider_name = (settings.search_provider or "serpapi").lower()
+    if provider_name == "none":
+        raise SearchNotConfigured(
+            "Automatic source discovery is currently unavailable. You can still add website links, paste information, or upload documents."
         )
-    except requests.RequestException as exc:
-        raise SearchFailed(f"Search provider could not be reached: {type(exc).__name__}.") from exc
-    if response.status_code != 200:
-        raise SearchFailed(
-            f"Search provider returned HTTP {response.status_code}. Check the provider key and quota."
-        )
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise SearchFailed("Search provider returned an unreadable response.") from exc
-    results: list[dict[str, str | None]] = []
-    for item in data.get("organic_results", []) or []:
-        if not isinstance(item, dict):
-            continue
-        link = item.get("link")
-        if not isinstance(link, str) or not link.startswith(("http://", "https://")):
-            continue
-        title = item.get("title")
-        snippet = item.get("snippet")
-        results.append(
-            {
-                "title": title if isinstance(title, str) else link,
-                "link": link,
-                "snippet": snippet if isinstance(snippet, str) else None,
-            }
-        )
-    return results
+    if provider_name == "serpapi":
+        if not settings.search_api_key:
+            raise SearchNotConfigured(
+                "Automatic source discovery is currently unavailable. You can still add website links, paste information, or upload documents."
+            )
+        return SerpApiProvider(settings.search_api_key)
+    raise SearchNotConfigured(f"Unknown search provider '{provider_name}'. Discovery is unavailable.")
+
+
+def discover_sources(
+    query: str, num: int = 10, client_ip: str = "unknown"
+) -> tuple[list[dict[str, str | None]], bool, str | None]:
+    """Return (results, cached, retrieved_at_iso). Raises SearchNotConfigured,
+    SearchQuotaExhausted, or SearchFailed. Deduplication: identical
+    concurrent queries serialize on a per-query lock and the second
+    caller hits the cache instead of the provider."""
+    settings = get_settings()
+    normalized = normalize_query(query)
+    provider = get_provider()
+    limit = min(max(1, num), settings.discovery_results_limit)
+    with _lock_for(normalized):
+        cached = get_cached(normalized, settings.discovery_cache_ttl_seconds)
+        if cached is not None:
+            results, retrieved_at = cached
+            return results[:limit], True, retrieved_at
+        # Quota is checked inside the lock so concurrent identical
+        # requests cannot both slip past a nearly-full quota.
+        try:
+            check_and_record(client_ip, settings.discovery_daily_global_limit, settings.discovery_session_limit)
+        except QuotaExceeded as exc:
+            raise SearchQuotaExhausted(str(exc)) from exc
+        try:
+            results = provider.search(query, limit)
+        except ProviderQuotaExhausted as exc:
+            raise SearchQuotaExhausted(str(exc)) from exc
+        except ProviderError as exc:
+            raise SearchFailed(str(exc)) from exc
+        retrieved_at = datetime.now(timezone.utc).isoformat()
+        set_cached(normalized, results)
+        return results, False, retrieved_at

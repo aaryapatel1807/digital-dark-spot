@@ -11,24 +11,28 @@ client = TestClient(app)
 
 
 def test_discover_without_key_is_503(monkeypatch):
-    monkeypatch.setattr("app.main.discover_sources", lambda q, n: (_ for _ in ()).throw(SearchNotConfigured("not configured")))
+    monkeypatch.setattr("app.main.discover_sources", lambda *a, **k: (_ for _ in ()).throw(SearchNotConfigured("not configured")))
     response = client.post("/api/discover", json={"query": "scholarship eligibility"})
     assert response.status_code == 503
     assert "not configured" in response.json()["detail"]
 
 
 def test_discover_provider_failure_is_502(monkeypatch):
-    monkeypatch.setattr("app.main.discover_sources", lambda q, n: (_ for _ in ()).throw(SearchFailed("provider down")))
+    monkeypatch.setattr("app.main.discover_sources", lambda *a, **k: (_ for _ in ()).throw(SearchFailed("provider down")))
     response = client.post("/api/discover", json={"query": "scholarship eligibility"})
     assert response.status_code == 502
 
 
 def test_discover_returns_provider_results_only(monkeypatch):
-    def fake(query, num):
-        return [
-            {"title": "Official page", "link": "https://example.com/scholarship", "snippet": "Eligibility details."},
-            {"title": "Blog", "link": "https://example.com/blog", "snippet": None},
-        ]
+    def fake(query, num, ip="unknown"):
+        return (
+            [
+                {"title": "Official page", "link": "https://example.com/scholarship", "snippet": "Eligibility details."},
+                {"title": "Blog", "link": "https://example.com/blog", "snippet": None},
+            ],
+            False,
+            None,
+        )
     monkeypatch.setattr("app.main.discover_sources", fake)
     response = client.post("/api/discover", json={"query": "scholarship eligibility"})
     assert response.status_code == 200
@@ -39,7 +43,7 @@ def test_discover_returns_provider_results_only(monkeypatch):
 
 
 def test_search_filters_non_http_links(monkeypatch):
-    import app.search as search_module
+    from app.search_providers import SerpApiProvider
 
     class FakeResponse:
         status_code = 200
@@ -51,7 +55,6 @@ def test_search_filters_non_http_links(monkeypatch):
                 {"title": "No link", "snippet": "z"},
             ]}
 
-    monkeypatch.setattr(search_module, "get_settings", lambda: type("S", (), {"search_api_key": "test-key"})())
-    monkeypatch.setattr(search_module.requests, "get", lambda *a, **k: FakeResponse())
-    results = search_module.discover_sources("scholarship")
+    monkeypatch.setattr("app.search_providers.requests.get", lambda *a, **k: FakeResponse())
+    results = SerpApiProvider("test-key").search("scholarship", 10)
     assert [r["link"] for r in results] == ["https://example.com/good"]

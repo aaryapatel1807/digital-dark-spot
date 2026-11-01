@@ -38,7 +38,8 @@ export function PdfUpload({ onAdd }: { onAdd: (title: string, text: string) => v
 
   return (
     <section className="rounded-2xl border border-line bg-card p-5 shadow-card">
-      <h2 className="font-display text-xl">Upload a PDF document</h2>
+      <h2 className="font-display text-xl">Upload Documents</h2>
+      <p className="mt-1 text-sm text-inksoft">Upload scholarship notices, brochures, or other supported PDFs.</p>
       <p className="mt-1 text-sm text-inksoft">
         Text-based PDFs only, up to 5 MB and 50 pages. Scanned or image-based PDFs have no extractable text and
         are rejected. The file is processed per request and is not stored on the server.

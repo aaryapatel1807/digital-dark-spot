@@ -83,6 +83,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  capabilities: async (): Promise<import("./types").CapabilitiesResponse | null> => {
+    try {
+      return await request<import("./types").CapabilitiesResponse>("/api/capabilities");
+    } catch {
+      return null; // Old backend: fall back to health's search_configured boolean.
+    }
+  },
   discover: (query: string) =>
     request<import("./types").DiscoverResponse>("/api/discover", {
       method: "POST",

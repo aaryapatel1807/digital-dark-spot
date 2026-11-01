@@ -28,6 +28,7 @@ export interface DiscoverResult {
   title: string;
   link: string;
   snippet: string | null;
+  domain?: string | null;
 }
 
 export interface PdfTextResponse {
@@ -43,7 +44,22 @@ export interface DiscoverResponse {
   query: string;
   provider: string;
   configured: boolean;
+  cached?: boolean;
+  retrieved_at?: string | null;
   results: DiscoverResult[];
+}
+
+export interface CapabilitiesResponse {
+  service: string;
+  version: string;
+  analysis_available: boolean;
+  pdf_available: boolean;
+  ask_available: boolean;
+  discovery_available: boolean;
+  discovery_enabled: boolean;
+  discovery_provider: string | null;
+  search_configured: boolean;
+  groq_configured: boolean;
 }
 
 export interface SampleSource {
