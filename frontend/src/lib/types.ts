@@ -30,6 +30,15 @@ export interface DiscoverResult {
   snippet: string | null;
 }
 
+export interface PdfTextResponse {
+  filename: string;
+  pages: number;
+  pages_with_text: number;
+  total_chars: number;
+  text: string;
+  page_texts: { page: number; text: string }[];
+}
+
 export interface DiscoverResponse {
   query: string;
   provider: string;

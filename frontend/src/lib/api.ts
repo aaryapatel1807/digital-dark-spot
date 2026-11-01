@@ -88,4 +88,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ query }),
     }),
+  pdfText: async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}/api/pdf-text`, { method: "POST", body: form });
+    } catch {
+      throw new ApiError("Could not reach the GapLens backend.");
+    }
+    if (!response.ok) {
+      let body: unknown = null;
+      try {
+        body = await response.json();
+      } catch {
+        body = null;
+      }
+      throw new ApiError(errorMessage(response.status, body), response.status);
+    }
+    return (await response.json()) as import("./types").PdfTextResponse;
+  },
 };

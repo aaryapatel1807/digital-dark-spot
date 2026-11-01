@@ -166,7 +166,7 @@ export function ResearchInput({
 
         <div>
           <p className="text-xs font-semibold tracking-wide text-inksoft">STEP 3 — ADD SOURCES</p>
-          <p className="mt-1 text-sm text-inksoft">Paste public webpage links, or paste copied text. Document upload (PDF and others) is not available yet — paste the text instead. GapLens checks only what you add here.</p>
+          <p className="mt-1 text-sm text-inksoft">Paste public webpage links, or paste copied text. Text-based PDFs can also be uploaded above (up to 5 MB, 50 pages). GapLens checks only what you add here.</p>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
           <div>

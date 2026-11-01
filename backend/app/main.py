@@ -35,6 +35,8 @@ from .sample import build_sample_analysis
 from .sample_analysis import build_sample_analysis_response
 from .schemas import FetchRequest, FetchResponse, HealthResponse, SampleAnalysis
 from .search import SearchFailed, SearchNotConfigured, discover_sources
+from .pdf import PdfRejected, extract_pdf_text
+from fastapi import File, UploadFile
 from pydantic import BaseModel, Field
 
 
@@ -138,6 +140,29 @@ def discover_endpoint(payload: DiscoverRequest, _rate: None = Depends(_limit_dis
         query=payload.query,
         results=[DiscoverResult(**r) for r in results],
     )
+
+
+class PdfTextResponse(BaseModel):
+    filename: str
+    pages: int
+    pages_with_text: int
+    total_chars: int
+    text: str
+    page_texts: list[dict] = Field(default_factory=list)
+
+
+@app.post("/api/pdf-text", response_model=PdfTextResponse)
+async def pdf_text_endpoint(file: UploadFile = File(...)) -> PdfTextResponse:
+    from fastapi import HTTPException
+
+    if file.content_type not in (None, "application/pdf"):
+        raise HTTPException(status_code=415, detail="Only PDF files are accepted.")
+    data = await file.read()
+    try:
+        result = extract_pdf_text(data, file.filename or "document.pdf")
+    except PdfRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return PdfTextResponse(**result)
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse)
