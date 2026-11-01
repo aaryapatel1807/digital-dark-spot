@@ -37,6 +37,7 @@ class HealthResponse(BaseModel):
     environment: str
     # Boolean only. The key itself is never exposed.
     groq_configured: bool
+    search_configured: bool = False
     sample_mode_available: bool = True
     checked_at: datetime
 

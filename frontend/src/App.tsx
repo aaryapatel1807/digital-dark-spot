@@ -5,6 +5,7 @@ import { ConflictExplorer } from './components/ConflictExplorer';
 import { CoverageMatrix } from './components/CoverageMatrix';
 import { Overview } from './components/Overview';
 import { SimpleView } from './components/SimpleView';
+import { SourceDiscovery } from './components/SourceDiscovery';
 import { EMPTY_FORM, ResearchInput, type ResearchForm } from './components/ResearchInput';
 import { SourceDrawer } from './components/SourceDrawer';
 import { Warnings } from './components/Warnings';
@@ -92,6 +93,7 @@ export default function App() {
     {page==='new-research'&&<>
       <div className="mode-switch" role="group" aria-label="Analysis mode"><button disabled={phase==='loading'} aria-pressed={mode==='live'} onClick={()=>{setMode('live');setFormError(null);}}>Live sources</button><button disabled={phase==='loading'} aria-pressed={mode==='demo'} onClick={()=>{setMode('demo');setFormError(null);}}><FlaskConical size={16}/> Demo sample</button></div>
       <p className="section-description mb-5">{mode==='demo'?'Bundled fictional scholarship sources. No pages are fetched.':'Free deterministic source analysis. Optional AI suggests questions only; your source text is not sent to the AI provider.'}</p>
+      {mode==='live'&&<div className="mb-5"><SourceDiscovery goal={form.goal} searchConfigured={!!health?.search_configured} onAdd={(urls)=>{const existing=form.urls.filter(u=>u.trim());const merged=[...existing,...urls.filter(u=>!existing.includes(u))];setForm({...form,urls:[...merged,'']});}}/></div>}
       <ResearchInput mode={mode} form={form} onChange={setForm} onAnalyze={submit} onClear={()=>{setForm(EMPTY_FORM);setFormError(null);setError(null);setPhase('idle');}} analyzing={phase==='loading'} formError={formError}/>
       {phase==='loading'&&<section className="panel mt-5" role="status"><h2><Loader2 size={20} className="animate-spin"/> Reading and comparing your sources…</h2><p className="section-description">Waiting for the complete backend response. No estimated progress is shown.</p><div className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink/10"><div className="loading-sweep h-full w-2/5 rounded-full bg-indigoaccent"/></div></section>}
       {phase==='error'&&<section className="notice warning mt-5" role="alert"><div><strong>Analysis failed</strong><p>{error}</p><p>Your existing reports and current inputs are preserved.</p></div><button className="secondary-button" onClick={()=>lastPayload&&void runAnalysis(lastPayload)}><RefreshCw size={16}/> Retry</button></section>}

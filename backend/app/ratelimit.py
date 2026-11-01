@@ -24,7 +24,7 @@ from collections import deque
 
 from fastapi import HTTPException, Request
 
-_LIMITS = {"fetch": 60, "analyze": 30}  # requests per 60 seconds, per IP.
+_LIMITS = {"fetch": 60, "analyze": 30, "discover": 30}  # requests per 60 seconds, per IP.
 _WINDOW_SECONDS = 60.0
 
 _lock = threading.Lock()

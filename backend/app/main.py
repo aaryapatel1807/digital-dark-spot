@@ -34,6 +34,27 @@ from .ratelimit import check_rate_limit
 from .sample import build_sample_analysis
 from .sample_analysis import build_sample_analysis_response
 from .schemas import FetchRequest, FetchResponse, HealthResponse, SampleAnalysis
+from .search import SearchFailed, SearchNotConfigured, discover_sources
+from pydantic import BaseModel, Field
+
+
+class DiscoverRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    query: str = Field(min_length=3, max_length=500)
+    num: int = Field(default=10, ge=1, le=10)
+
+
+class DiscoverResult(BaseModel):
+    title: str
+    link: str
+    snippet: str | None = None
+
+
+class DiscoverResponse(BaseModel):
+    query: str
+    provider: str = "serpapi"
+    configured: bool = True
+    results: list[DiscoverResult] = Field(default_factory=list)
 
 settings = get_settings()
 
@@ -65,6 +86,10 @@ def _limit_fetch(request: Request) -> None:
 def _limit_analyze(request: Request) -> None:
     check_rate_limit(request, "analyze")
 
+
+def _limit_discover(request: Request) -> None:
+    check_rate_limit(request, "discover")
+
 _LIVE_DISCLAIMER = (
     "Live analysis over the sources you supplied. Findings are "
     "potential signals drawn from quoted passages, not confirmed "
@@ -84,6 +109,7 @@ def health() -> HealthResponse:
         version=settings.version,
         environment=settings.environment,
         groq_configured=settings.groq_configured,
+        search_configured=settings.search_configured,
         checked_at=datetime.now(timezone.utc),
     )
 
@@ -96,6 +122,22 @@ def sample() -> SampleAnalysis:
 @app.post("/api/fetch", response_model=FetchResponse)
 def fetch(payload: FetchRequest, _rate: None = Depends(_limit_fetch)) -> FetchResponse:
     return fetch_public_url(str(payload.url))
+
+
+@app.post("/api/discover", response_model=DiscoverResponse)
+def discover_endpoint(payload: DiscoverRequest, _rate: None = Depends(_limit_discover)) -> DiscoverResponse:
+    from fastapi import HTTPException
+
+    try:
+        results = discover_sources(payload.query, payload.num)
+    except SearchNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except SearchFailed as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return DiscoverResponse(
+        query=payload.query,
+        results=[DiscoverResult(**r) for r in results],
+    )
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse)

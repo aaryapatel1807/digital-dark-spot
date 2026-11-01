@@ -19,8 +19,22 @@ export interface HealthResponse {
   version: string;
   environment: string;
   groq_configured: boolean;
+  search_configured?: boolean;
   sample_mode_available: boolean;
   checked_at: string;
+}
+
+export interface DiscoverResult {
+  title: string;
+  link: string;
+  snippet: string | null;
+}
+
+export interface DiscoverResponse {
+  query: string;
+  provider: string;
+  configured: boolean;
+  results: DiscoverResult[];
 }
 
 export interface SampleSource {

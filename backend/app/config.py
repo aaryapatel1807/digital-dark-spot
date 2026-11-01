@@ -41,6 +41,11 @@ class Settings:
     groq_model: str | None = field(
         default_factory=lambda: os.environ.get("GROQ_MODEL") or None
     )
+    # Backend-only secret for source discovery (Step 3). Optional:
+    # without it, /api/discover returns 503 and the UI says so.
+    search_api_key: str | None = field(
+        default_factory=lambda: os.environ.get("SERPAPI_KEY") or None
+    )
     fetch_timeout_seconds: float = 10.0
     fetch_max_bytes: int = 1_000_000
     # Analysis-layer limits. These bound every /api/analyze run so one
@@ -59,6 +64,10 @@ class Settings:
     @property
     def groq_configured(self) -> bool:
         return bool(self.groq_api_key)
+
+    @property
+    def search_configured(self) -> bool:
+        return bool(self.search_api_key)
 
 
 @lru_cache(maxsize=1)

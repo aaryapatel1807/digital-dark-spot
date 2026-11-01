@@ -83,4 +83,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  discover: (query: string) =>
+    request<import("./types").DiscoverResponse>("/api/discover", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    }),
 };
