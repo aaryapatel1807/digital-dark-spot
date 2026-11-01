@@ -177,6 +177,56 @@ def test_different_year_amounts_are_flagged_as_possible_conflict():
     assert {v.source_id for v in result.conflicts[0].values} == {"S1", "S2"}
 
 
+def test_different_year_conflict_classified_not_same_period():
+    sources = [
+        _src("S1", "In 2024 the scholarship amount was 10000 per year."),
+        _src("S2", "In 2026 the scholarship amount is 12000 per year."),
+    ]
+    result = _run(["What is the scholarship amount?"], sources)
+    assert len(result.conflicts) == 1
+    assert result.conflicts[0].classification == "different_period"
+    # Still visible, with both original quotes intact.
+    assert {v.source_id for v in result.conflicts[0].values} == {"S1", "S2"}
+    assert "2024" in result.conflicts[0].values[0].quote or "2024" in result.conflicts[0].values[1].quote
+
+
+def test_same_year_conflict_classified_same_period():
+    sources = [
+        _src("S1", "In 2026 the scholarship amount was 10000 per year."),
+        _src("S2", "In 2026 the scholarship amount is 12000 per year."),
+    ]
+    result = _run(["What is the scholarship amount?"], sources)
+    assert result.conflicts[0].classification == "same_period"
+
+
+def test_undated_conflict_classified_uncertain():
+    sources = [
+        _src("S1", "The scholarship amount was 10000 per year."),
+        _src("S2", "The scholarship amount is 12000 per year."),
+    ]
+    result = _run(["What is the scholarship amount?"], sources)
+    assert result.conflicts[0].classification == "uncertain"
+    assert "unclear" in (result.conflicts[0].classification_note or "")
+
+
+def test_different_conditions_conflict_classified():
+    sources = [
+        _src("S1", "The scholarship amount for undergraduate students is 10000 per year."),
+        _src("S2", "The scholarship amount for postgraduate students is 12000 per year."),
+    ]
+    result = _run(["What is the scholarship amount?"], sources)
+    assert result.conflicts[0].classification == "different_conditions"
+
+
+def test_different_scope_conflict_classified():
+    sources = [
+        _src("S1", "The scholarship amount in Maharashtra is 10000 per year."),
+        _src("S2", "The scholarship amount in Gujarat is 12000 per year."),
+    ]
+    result = _run(["What is the scholarship amount?"], sources)
+    assert result.conflicts[0].classification == "different_scope"
+
+
 def test_stance_conflict_with_verified_quotes():
     sources = [
         _src("S1", "Students are eligible for the scholarship when income is below the limit."),

@@ -340,6 +340,80 @@ def _numbers(sentence: str) -> list[tuple[str, str]]:
     return found
 
 
+# --- Temporal conflict classification (Task 3) ---
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_CONDITION_PHRASES = [
+    "undergraduate", "postgraduate", "general category", "obc category",
+    "scheduled caste", "scheduled tribe", "rural", "urban",
+    "first year", "final year", "new students", "renewal students",
+    "male students", "female students",
+]
+_STATE_NAMES = [
+    "andhra pradesh", "assam", "bihar", "chhattisgarh", "goa", "gujarat",
+    "haryana", "himachal pradesh", "jharkhand", "karnataka", "kerala",
+    "madhya pradesh", "maharashtra", "manipur", "meghalaya", "mizoram",
+    "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
+    "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal",
+    "delhi", "jammu and kashmir", "ladakh",
+]
+
+
+def _classify_conflict(quote_a: str, quote_b: str) -> tuple[str, str]:
+    """Classify a possible conflict from its two quotes only.
+
+    Order matters: a period difference is checked first, because a
+    2024 vs 2026 pair is a change over time even if the groups also
+    differ. Same-period is claimed ONLY when both quotes share a
+    year; anything else without a distinguishing condition/scope
+    is uncertain and must be verified, never presented as a
+    genuine contradiction.
+    """
+    a, b = quote_a.lower(), quote_b.lower()
+    years_a = set(_YEAR_RE.findall(a))
+    years_b = set(_YEAR_RE.findall(b))
+    if years_a and years_b and years_a.isdisjoint(years_b):
+        return (
+            "different_period",
+            f"Different periods ({sorted(years_a)[0]} vs {sorted(years_b)[0]}): "
+            "this may be a change over time, not a same-period contradiction.",
+        )
+    cond_a = {p for p in _CONDITION_PHRASES if p in a}
+    cond_b = {p for p in _CONDITION_PHRASES if p in b}
+    if cond_a and cond_b and cond_a.isdisjoint(cond_b):
+        return (
+            "different_conditions",
+            "Different conditions: the two statements may apply to different groups.",
+        )
+    scope_a = {s for s in _STATE_NAMES if s in a}
+    scope_b = {s for s in _STATE_NAMES if s in b}
+    if scope_a and scope_b and scope_a.isdisjoint(scope_b):
+        return (
+            "different_scope",
+            "Different geographic scope: the two statements may apply to different places.",
+        )
+    if years_a and years_b and not years_a.isdisjoint(years_b):
+        return (
+            "same_period",
+            "Same period: both statements refer to a shared year, so the difference is worth checking against the official source.",
+        )
+    return (
+        "uncertain",
+        "Applicable period is unclear from these quotes: verify which year, cycle, group, or scope each statement covers before treating this as a contradiction.",
+    )
+
+
+def _with_classification(conflict: PossibleConflict) -> PossibleConflict:
+    classification, note = _classify_conflict(conflict.values[0].quote, conflict.values[1].quote)
+    return PossibleConflict(
+        question_id=conflict.question_id,
+        question=conflict.question,
+        detail=f"{conflict.detail} {note}",
+        values=conflict.values,
+        classification=classification,
+        classification_note=note,
+    )
+
+
 def _numeric_conflict(
     question_id: str, question: str, passages: list[_ScoredPassage]
 ) -> PossibleConflict | None:
@@ -356,7 +430,7 @@ def _numeric_conflict(
         if len(distinct) >= 2 and len(sources) >= 2:
             first = distinct[0]
             second = next(p for p in distinct if p.source_id != first.source_id)
-            return PossibleConflict(
+            return _with_classification(PossibleConflict(
                 question_id=question_id,
                 question=question,
                 detail=(
@@ -369,7 +443,7 @@ def _numeric_conflict(
                     EvidenceQuote(source_id=first.source_id, quote=first.sentence),
                     EvidenceQuote(source_id=second.source_id, quote=second.sentence),
                 ],
-            )
+            ))
     return None
 
 
@@ -394,7 +468,7 @@ def _stance_conflict(
         if not denies and affirming is None:
             affirming = passage
     if denying and affirming and denying.source_id != affirming.source_id:
-        return PossibleConflict(
+        return _with_classification(PossibleConflict(
             question_id=question_id,
             question=question,
             detail=(
@@ -407,7 +481,7 @@ def _stance_conflict(
                 EvidenceQuote(source_id=affirming.source_id, quote=affirming.sentence),
                 EvidenceQuote(source_id=denying.source_id, quote=denying.sentence),
             ],
-        )
+        ))
     return None
 
 
@@ -491,6 +565,8 @@ def _validate(
         conflicts.append(PossibleConflict(
             question_id=conflict.question_id, question=conflict.question,
             detail=conflict.detail, values=values[:2],
+            classification=conflict.classification,
+            classification_note=conflict.classification_note,
         ))
     unanswered = [c.question for c in coverage if c.status == "not_found"]
     covered = sum(1 for c in coverage if c.status == "covered")

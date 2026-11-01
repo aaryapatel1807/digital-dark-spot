@@ -28,7 +28,16 @@ export function AskGapLens({
     try {
       setAnswer(await api.ask(question.trim(), result));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Ask GapLens failed.");
+      // Task 2: the live backend may predate /api/ask (404/405).
+      // Say so plainly instead of showing a misleading generic error
+      // or pretending the assistant answered.
+      setError(
+        e instanceof ApiError && (e.status === 404 || e.status === 405)
+          ? "Ask GapLens is not available on this backend yet — it needs the GapLens 2.0 backend. The report above is still fully usable."
+          : e instanceof ApiError
+            ? e.message
+            : "Ask GapLens failed.",
+      );
     } finally {
       setLoading(false);
     }

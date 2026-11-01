@@ -120,6 +120,16 @@ class PossibleConflict(BaseModel):
     label: Literal["possible conflict"] = "possible conflict"
     detail: str
     values: list[EvidenceQuote] = Field(min_length=2, max_length=2)
+    # Temporal classification (GapLens 2.0 stabilization, Task 3).
+    # A 2024 amount and a 2026 amount stay visible, but are NOT
+    # presented as a genuine same-period contradiction: they are
+    # "different_period". When period/group/scope cannot be told
+    # apart, the finding is "uncertain" and must be verified.
+    classification: Literal[
+        "same_period", "different_period", "different_conditions",
+        "different_scope", "uncertain",
+    ] = "uncertain"
+    classification_note: str | None = None
 
 
 class GapItem(BaseModel):

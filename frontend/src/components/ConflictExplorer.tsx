@@ -1,5 +1,6 @@
 import { Scale } from "lucide-react";
 import type { AnalysisResponse, SourceRecord } from "../lib/types";
+import { CONFLICT_LABELS } from "../lib/types";
 
 export function ConflictExplorer({
   result,
@@ -38,6 +39,12 @@ export function ConflictExplorer({
                 <h3 className="font-semibold">{conflict.question}</h3>
               </div>
               <p className="mt-2 text-sm text-inksoft">{conflict.detail}</p>
+              {conflict.classification && (
+                <p className="mt-2 rounded-xl border border-line bg-cream px-3 py-2 text-sm font-medium">
+                  {CONFLICT_LABELS[conflict.classification]}
+                  {conflict.classification_note ? ` — ${conflict.classification_note}` : ""}
+                </p>
+              )}
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {conflict.values.map((value) => {
                   const source = sourceById.get(value.source_id);

@@ -1,4 +1,5 @@
 import type { AnalysisResponse } from "../lib/types";
+import { CONFLICT_LABELS } from "../lib/types";
 
 // Simple view: the SAME result, in everyday language. No new numbers,
 // no new conclusions — every count below is computed from the result
@@ -63,6 +64,9 @@ export function SimpleView({ result }: { result: AnalysisResponse }) {
             {result.conflicts.map((conflict, i) => (
               <article key={i}>
                 <h3 className="text-sm font-semibold">{conflict.question}</h3>
+                {conflict.classification && (
+                  <p className="mt-1 text-sm font-medium">{CONFLICT_LABELS[conflict.classification]}</p>
+                )}
                 <div className="mt-2 grid gap-3 md:grid-cols-2">
                   {conflict.values.map((v, j) => (
                     <blockquote key={j} className="rounded-xl border border-line bg-paper p-3 text-sm">

@@ -82,6 +82,21 @@ export interface SampleConflict {
   values: ConflictValue[];
 }
 
+export type ConflictClassification =
+  | "same_period"
+  | "different_period"
+  | "different_conditions"
+  | "different_scope"
+  | "uncertain";
+
+export const CONFLICT_LABELS: Record<ConflictClassification, string> = {
+  same_period: "Same-period difference — check which is current",
+  different_period: "Different periods — may be a change over time, not a contradiction",
+  different_conditions: "Different conditions — may apply to different groups",
+  different_scope: "Different scope — may apply to different places or institutions",
+  uncertain: "Uncertain applicability — verify period, group, or scope first",
+};
+
 export interface SampleChecklistItem {
   rank: number;
   action: string;
@@ -169,6 +184,8 @@ export interface PossibleConflict {
   label: "possible conflict";
   detail: string;
   values: EvidenceQuote[];
+  classification?: ConflictClassification;
+  classification_note?: string | null;
 }
 
 export interface GapItem {

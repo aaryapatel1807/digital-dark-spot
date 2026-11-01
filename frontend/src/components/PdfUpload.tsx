@@ -24,7 +24,13 @@ export function PdfUpload({ onAdd }: { onAdd: (title: string, text: string) => v
         `Extracted ${result.pages_with_text} of ${result.pages} pages, ${result.total_chars.toLocaleString()} characters. Added as a pasted source with [Page N] markers, so evidence quotes carry their page.`,
       );
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "PDF extraction failed.");
+      setError(
+        e instanceof ApiError && (e.status === 404 || e.status === 405)
+          ? "PDF upload is not available on this backend yet — it needs the GapLens 2.0 backend. You can paste the PDF text instead."
+          : e instanceof ApiError
+            ? e.message
+            : "PDF extraction failed.",
+      );
     } finally {
       setLoading(false);
     }
