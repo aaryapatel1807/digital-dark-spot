@@ -13,6 +13,16 @@ has **no fake search and no fake citations**.
 > seconds to wake). Backend version 2.0.0, environment production, verified live:
 > frontend header "Backend connected", live (non-demo) reports run end to end.
 >
+> **GapLens 2.0 (in repo, backend deploy pending SnapDeploy free-deploy
+> window reset — see Deployment):** semantic paraphrase matching
+> (concept clusters + phrase matches + optional Groq term expansion,
+> NOT embeddings), source discovery via SerpApi only when
+> `SERPAPI_KEY` is set server-side (otherwise 503, never invented
+> URLs), PDF text extraction (≤5 MB, ≤50 pages, page markers in
+> evidence), deterministic Ask GapLens over report evidence only,
+> and richer evidence-graph detail panes. See
+> `docs/audit-2.0-plan.md` for the audit and honest scope.
+>
 > **Analysis build (v2.0.0).** `POST /api/analyze` takes a research goal, public URLs, and pasted text, and returns
 > a strict Pydantic result — summary, per-question coverage, unanswered questions, possible conflicts with
 > both quotes, freshness warnings, trust-tier alert, and a prioritized verify-next action list. Every quote is validated
@@ -138,6 +148,9 @@ Backend checks: `cd backend && .venv/bin/python -m pytest tests/ -q`
 | `GET` | `/api/sample` | `SampleAnalysis` (`mode: "offline_sample"`) |
 | `POST` | `/api/fetch` | `FetchResponse` (`ok` / `blocked` / `failed` / `unsupported` / `not_found` / `nonexistent` / `timeout` / `too_large`) |
 | `POST` | `/api/analyze` | `AnalysisResponse` (see "Analysis" above; `mode: "offline_sample"` for the labelled demo) |
+| `POST` | `/api/discover` | `DiscoverResponse` (SerpApi suggestions only; 503 when `SERPAPI_KEY` is unset) |
+| `POST` | `/api/pdf-text` | `PdfTextResponse` (per-page text, `[Page N]` markers; 415 non-PDF, 422 oversize/textless) |
+| `POST` | `/api/ask` | `AskResponse` (deterministic answer from the submitted report's evidence only) |
 
 Schemas: `backend/app/schemas.py` (foundation shapes) and `backend/app/analysis_schemas.py` (analysis shapes).
 The frontend mirrors the foundation schemas in `frontend/src/lib/types.ts` — change both together. Note: the
