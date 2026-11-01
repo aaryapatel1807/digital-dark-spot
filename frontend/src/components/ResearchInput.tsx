@@ -14,6 +14,16 @@ export const EMPTY_FORM: ResearchForm = {
   texts: [],
 };
 
+export const RESEARCH_TEMPLATES: Record<string, string[]> = {
+  Scholarship: ["Who is eligible?", "Which documents are required?", "When is the last date to apply?", "How much is awarded?", "What renews the scholarship next year?", "How do you apply, step by step?", "What restrictions or exclusions apply?", "How are applicants selected?"],
+  "College Admission": ["Who is eligible to apply?", "Which documents are required?", "When is the last date to apply?", "What are the fees?", "What is the selection process?", "Is this information for the current admission cycle?"],
+  "Career and Jobs": ["What is the role and salary?", "What qualifications are required?", "When is the last date to apply?", "What is the selection process?", "What should I verify before accepting this offer?"],
+  "Government Schemes": ["Who is eligible?", "Which documents are required?", "When is the last date to apply?", "How much support is offered?", "Is this scheme still active?", "How do you apply?"],
+  "Business Research": ["What is the product or service?", "What does it cost?", "Who is it for?", "What are the terms and conditions?", "What information is missing or uncertain?"],
+  "Academic Research": ["What is the main claim?", "What evidence supports it?", "What evidence disagrees?", "When was it published or updated?", "What is missing or uncertain?"],
+  "General Investigation": ["What is this about?", "Who is eligible or affected?", "What are the key dates?", "What does it require or cost?", "What is missing or uncertain?"],
+};
+
 const MAX_INPUTS = 20;
 
 function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
@@ -103,6 +113,7 @@ export function ResearchInput({
 
       <fieldset disabled={isDemo || analyzing} className="mt-5 space-y-6 disabled:opacity-60">
         <div>
+          <p className="text-xs font-semibold tracking-wide text-inksoft">STEP 1 — ASK</p>
           <FieldLabel hint="Required for live analysis">Research goal</FieldLabel>
           <textarea
             aria-label="Research goal"
@@ -112,6 +123,18 @@ export function ResearchInput({
             placeholder="e.g. Scholarship application — what does it take, and what is still unclear?"
             className="mt-2 w-full rounded-xl border border-line bg-paper px-3 py-2.5 text-sm placeholder:text-inksoft/60"
           />
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold tracking-wide text-inksoft">STEP 2 — CHOOSE A RESEARCH TYPE (OPTIONAL)</p>
+          <p className="mt-1 text-sm text-inksoft">Pick a template to fill in the questions below. You can edit or delete any of them — nothing is forced.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {Object.keys(RESEARCH_TEMPLATES).map((name) => (
+              <button key={name} type="button" onClick={() => set({ questions: [...RESEARCH_TEMPLATES[name]] })} className="rounded-full border border-line bg-card px-3 py-1.5 text-sm font-medium text-inksoft transition hover:border-indigoaccent/50 hover:text-indigoaccent">
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div>
@@ -141,6 +164,10 @@ export function ResearchInput({
           </div>
         </div>
 
+        <div>
+          <p className="text-xs font-semibold tracking-wide text-inksoft">STEP 3 — ADD SOURCES</p>
+          <p className="mt-1 text-sm text-inksoft">Paste public webpage links, or paste copied text. Document upload (PDF and others) is not available yet — paste the text instead. GapLens checks only what you add here.</p>
+        </div>
         <div className="grid gap-6 lg:grid-cols-2">
           <div>
             <FieldLabel hint="Public pages only">Source URLs</FieldLabel>
